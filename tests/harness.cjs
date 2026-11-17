@@ -209,6 +209,7 @@ function createHarness() {
         if (id === './leafView') return leafModule;
         if (id === './i18n') return { strings: () => ({}), t: (key) => key };
         if (id === './searchFilter') return load('searchFilter');
+        if (id === './exclusions') return load('exclusions');
         if (id === './filterBar') return load('filterBar');
         if (id === 'monkey-around') return require('monkey-around');
         throw new Error(`Unexpected dependency: ${id}`);

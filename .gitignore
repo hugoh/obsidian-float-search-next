@@ -25,3 +25,4 @@ data.json
 *.zip
 *.rar
 *.7z
+.obsidian-cache/

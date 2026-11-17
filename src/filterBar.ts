@@ -1,11 +1,5 @@
-import {
-	App,
-	debounce,
-	prepareFuzzySearch,
-	SearchResult,
-	SearchView,
-	TFile,
-} from "obsidian";
+import { debounce, prepareFuzzySearch, TFile } from "obsidian";
+import type { App, SearchResult, SearchView } from "obsidian";
 import { strings } from "./i18n";
 import { around } from "monkey-around";
 

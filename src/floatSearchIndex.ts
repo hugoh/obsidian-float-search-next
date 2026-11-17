@@ -31,6 +31,12 @@ import {
 } from "obsidian";
 import { EmbeddedView, isEmebeddedLeaf, spawnLeafView } from "./leafView";
 import { SearchFilter, parseQuery, requiresContent, type Query, type Clause } from "./searchFilter";
+import {
+	isPathExcluded,
+	normalizePath,
+	stripExclusion,
+	withExclusion,
+} from "./exclusions";
 import { around } from "monkey-around";
 import { debounce } from "obsidian";
 import { strings, t } from "./i18n";
@@ -417,54 +423,19 @@ export default class FloatSearchPlugin extends Plugin {
 	// Public so the CMDK modal (a separate class) can reuse the same
 	// normalisation when building its candidate-file set.
 	normalizePath(p: string): string {
-		return p.trim().replace(/^\/+/, "").replace(/\/+$/, "");
-	}
-
-	buildExcludeClause(): string {
-		const parts: string[] = [];
-		for (const raw of this.settings.excludeFolders) {
-			const p = this.normalizePath(raw);
-			if (p) parts.push(`-path:"${p}/"`);
-		}
-		for (const raw of this.settings.excludeFiles) {
-			const p = this.normalizePath(raw);
-			if (p) parts.push(`-path:"${p}"`);
-		}
-		return parts.join(" ");
+		return normalizePath(p);
 	}
 
 	withExclusion(query: string): string {
-		const clause = this.buildExcludeClause();
-		const q = (query ?? "").trim();
-		if (!clause) return q;
-		if (q.includes(clause)) return q;
-		return q ? `${q} ${clause}` : clause;
+		return withExclusion(this.settings, query);
 	}
 
 	stripExclusion(query: string): string {
-		const clause = this.buildExcludeClause();
-		let q = query ?? "";
-		if (clause) q = q.split(clause).join("");
-		return q.replace(/\s+/g, " ").trim();
+		return stripExclusion(this.settings, query);
 	}
 
 	isFileExcluded(file: TFile): boolean {
-		const folders = this.settings.excludeFolders
-			.map((f) => this.normalizePath(f))
-			.filter(Boolean);
-		const files = this.settings.excludeFiles
-			.map((f) => this.normalizePath(f))
-			.filter(Boolean);
-		const path = file.path;
-		if (
-			files.some((f) => f === path || f === file.name)
-		)
-			return true;
-		if (
-			folders.some((f) => path === f || path.startsWith(f + "/"))
-		)
-			return true;
-		return false;
+		return isPathExcluded(this.settings, file.path, file.name);
 	}
 
 	// ── Saved searches ────────────────────────────────────────────────
@@ -1608,10 +1579,13 @@ export default class FloatSearchPlugin extends Plugin {
 		type LegacySettings = Partial<FloatSearchSettings> & {
 			filterButtons?: { name: string; query: string }[];
 		};
-		const data = (await this.loadData()) as LegacySettings;
+		const data = ((await this.loadData()) ?? {}) as LegacySettings;
 		const merged: FloatSearchSettings & {
 			filterButtons?: { name: string; query: string }[];
 		} = Object.assign({}, DEFAULT_SETTINGS, data);
+		merged.excludeFolders = [...(merged.excludeFolders ?? [])];
+		merged.excludeFiles = [...(merged.excludeFiles ?? [])];
+		merged.savedSearches = [...(merged.savedSearches ?? [])];
 
 		// Merge the legacy "filter buttons" feature into saved searches so the
 		// single preset list drives the CMDK filter chips.
