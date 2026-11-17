@@ -109,6 +109,8 @@ bun run test:e2e     # runs the plugin in a real Obsidian (wdio-obsidian-service
 
 ## Credits and licensing
 
+Where each feature came from, and every fix made while merging, is recorded in [docs/consolidation.md](docs/consolidation.md).
+
 This project is licensed under the **GNU General Public License v3.0** (see [LICENSE](LICENSE)). All the forks it draws on were checked and are GPL-3.0, so their code can be combined here.
 
 | Source | Contribution | License |

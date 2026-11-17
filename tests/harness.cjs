@@ -139,7 +139,7 @@ function createHarness() {
   }
   const obsidian = {
     Modal, SuggestModal, TFile,
-    Plugin: class {}, PluginSettingTab: class {}, AbstractInputSuggest: class {}, TFolder: class {},
+    Plugin: class {}, PluginSettingTab: class {}, normalizePath: (p) => String(p).replace(/^\/+|\/+$/g, '') || '/', AbstractInputSuggest: class {}, TFolder: class {},
     prepareFuzzySearch: (q) => (text) => (String(text).toLowerCase().includes(String(q).toLowerCase()) ? { score: 0, matches: [] } : null),
     Workspace: class {}, WorkspaceLeaf: class {}, WorkspaceContainer: class {},
     debounce(callback, delay) {
@@ -208,9 +208,8 @@ function createHarness() {
         if (id === 'obsidian') return obsidian;
         if (id === './leafView') return leafModule;
         if (id === './i18n') return { strings: () => ({}), t: (key) => key };
-        if (id === './searchFilter') return load('searchFilter');
-        if (id === './exclusions') return load('exclusions');
-        if (id === './filterBar') return load('filterBar');
+        if (id.startsWith('./')) return load(id.slice(2));
+        if (id === 'safe-regex2') return require('safe-regex2');
         if (id === 'monkey-around') return require('monkey-around');
         throw new Error(`Unexpected dependency: ${id}`);
       },

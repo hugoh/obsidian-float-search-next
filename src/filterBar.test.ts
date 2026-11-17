@@ -48,6 +48,10 @@ describe("compileQueryRegex", () => {
     expect(compileQueryRegex(host(), "a+")).toBeNull();
   });
 
+  test("is null for a pattern with nested quantifiers", () => {
+    expect(compileQueryRegex(host({ filterUseRegex: true }), "^(a+)+$")).toBeNull();
+  });
+
   test("is null for an invalid pattern", () => {
     expect(compileQueryRegex(host({ filterUseRegex: true }), "(")).toBeNull();
   });
@@ -103,6 +107,13 @@ describe("matchAsSearchResult", () => {
   test("regex mode respects case and multiline anchors", () => {
     expect(matchAsSearchResult(host({ filterUseRegex: true }), "one\nTWO", "^two$")).not.toBeNull();
     expect(matchAsSearchResult(host({ filterUseRegex: true, filterMatchCase: true }), "one\nTWO", "^two$")).toBeNull();
+  });
+
+  test("a pattern that can backtrack exponentially matches nothing, instantly", () => {
+    const h = host({ filterUseRegex: true });
+    const started = performance.now();
+    expect(matchAsSearchResult(h, `${"a".repeat(40)}!`, "^(a+)+$")).toBeNull();
+    expect(performance.now() - started).toBeLessThan(50);
   });
 
   test("an invalid regex matches nothing", () => {

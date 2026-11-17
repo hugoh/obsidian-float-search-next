@@ -10,6 +10,8 @@ const fuzzy = (query: string) => (text: string) => {
 mock.module("obsidian", () => ({
   prepareFuzzySearch: fuzzy,
   TFile: class {},
+  normalizePath: (path: string) =>
+    path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "") || "/",
   getLanguage: () => (globalThis as { testLanguage?: string }).testLanguage ?? "en",
   requireApiVersion: () => true,
   debounce: (fn: () => void) => fn,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildExcludeClause,
-  isPathExcluded,
+  createExclusionMatcher,
   normalizePath,
   stripExclusion,
   withExclusion,
@@ -15,6 +15,10 @@ describe("normalizePath", () => {
     expect(normalizePath("  /Templates/ ")).toBe("Templates");
     expect(normalizePath("a/b//")).toBe("a/b");
   });
+
+  test("the vault root normalises to nothing", () => {
+    expect(normalizePath("/")).toBe("");
+  });
 });
 
 describe("buildExcludeClause", () => {
@@ -22,14 +26,20 @@ describe("buildExcludeClause", () => {
     expect(buildExcludeClause(none)).toBe("");
   });
 
-  test("excludes folders with a trailing slash and files exactly", () => {
+  test("anchors folders at the start and files at both ends", () => {
     expect(buildExcludeClause(rules)).toBe(
-      '-path:"Templates/" -path:"Archive/" -path:"secrets.md"',
+      "-path:/^Templates\\// -path:/^Archive\\// -path:/^secrets\\.md$/",
     );
   });
 
   test("ignores blank entries", () => {
     expect(buildExcludeClause({ excludeFolders: ["  ", "/"], excludeFiles: [""] })).toBe("");
+  });
+
+  test("cannot be broken out of by quotes or regex characters in a name", () => {
+    const clause = buildExcludeClause({ excludeFolders: ['a" -path:"b', "c(d)+"], excludeFiles: [] });
+    expect(clause.split(" ")).toHaveLength(2);
+    expect(clause).toContain("c\\(d\\)\\+");
   });
 });
 
@@ -70,22 +80,26 @@ describe("stripExclusion", () => {
   });
 });
 
-describe("isPathExcluded", () => {
-  test("excludes files in an excluded folder and the folder itself", () => {
-    expect(isPathExcluded(rules, "Templates/daily.md", "daily.md")).toBe(true);
-    expect(isPathExcluded(rules, "Archive", "Archive")).toBe(true);
+describe("createExclusionMatcher", () => {
+  const excluded = createExclusionMatcher(rules);
+
+  test("excludes files inside an excluded folder", () => {
+    expect(excluded("Templates/daily.md")).toBe(true);
+    expect(excluded("Archive/2020/x.md")).toBe(true);
   });
 
-  test("does not match a folder by prefix only", () => {
-    expect(isPathExcluded(rules, "Templates-old/a.md", "a.md")).toBe(false);
+  test("excludes only the folder itself, not look-alikes or nested namesakes", () => {
+    expect(excluded("Templates-old/a.md")).toBe(false);
+    expect(excluded("Work/Archive/a.md")).toBe(false);
   });
 
-  test("excludes a file by path or by name", () => {
-    expect(isPathExcluded(rules, "secrets.md", "secrets.md")).toBe(true);
-    expect(isPathExcluded(rules, "deep/secrets.md", "secrets.md")).toBe(true);
+  test("excludes a file by its exact path only", () => {
+    expect(excluded("secrets.md")).toBe(true);
+    expect(excluded("deep/secrets.md")).toBe(false);
+    expect(excluded("my-secrets.md")).toBe(false);
   });
 
   test("allows everything without rules", () => {
-    expect(isPathExcluded(none, "any/thing.md", "thing.md")).toBe(false);
+    expect(createExclusionMatcher(none)("any/thing.md")).toBe(false);
   });
 });

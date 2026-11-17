@@ -43,7 +43,7 @@ describe("Floating native search", () => {
 		await updateSettings({ excludeFolders: ["Archive"] });
 		await searchFor("pineapple");
 		const input = browser.$(".float-search-modal .search-input-container input");
-		expect(await input.getValue()).toMatch(/^pineapple\s+-path:"Archive\/"$/);
+		expect(await input.getValue()).toBe("pineapple -path:/^Archive\\//");
 	});
 
 	it("applies exclusion rules to the native search", async () => {

@@ -42,6 +42,7 @@
 		"wdio-obsidian-service": "^3.5.0"
 	},
 	"dependencies": {
-		"monkey-around": "^2.3.0"
+		"monkey-around": "^2.3.0",
+		"safe-regex2": "^5.1.2"
 	}
 }

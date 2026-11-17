@@ -32,8 +32,7 @@ import {
 import { EmbeddedView, isEmebeddedLeaf, spawnLeafView } from "./leafView";
 import { SearchFilter, parseQuery, requiresContent, type Query, type Clause } from "./searchFilter";
 import {
-	isPathExcluded,
-	normalizePath,
+	createExclusionMatcher,
 	stripExclusion,
 	withExclusion,
 } from "./exclusions";
@@ -420,22 +419,12 @@ export default class FloatSearchPlugin extends Plugin {
 	}
 
 	// ── Exclusion helpers ──────────────────────────────────────────────
-	// Public so the CMDK modal (a separate class) can reuse the same
-	// normalisation when building its candidate-file set.
-	normalizePath(p: string): string {
-		return normalizePath(p);
-	}
-
 	withExclusion(query: string): string {
 		return withExclusion(this.settings, query);
 	}
 
 	stripExclusion(query: string): string {
 		return stripExclusion(this.settings, query);
-	}
-
-	isFileExcluded(file: TFile): boolean {
-		return isPathExcluded(this.settings, file.path, file.name);
 	}
 
 	// ── Saved searches ────────────────────────────────────────────────
@@ -2932,20 +2921,11 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
   // reuse it across keystrokes. Rebuilt lazily after any vault change.
   private getCandidateFiles(): TFile[] {
     if (this.candidateFiles) return this.candidateFiles;
-    const folders = this.plugin.settings.excludeFolders
-      .map((f) => this.plugin.normalizePath(f))
-      .filter(Boolean);
-    const fileExcludes = this.plugin.settings.excludeFiles
-      .map((f) => this.plugin.normalizePath(f))
-      .filter(Boolean);
+    const isExcluded = createExclusionMatcher(this.plugin.settings);
     const exts = new Set(["md", "canvas", "pdf", "base"]);
-    this.candidateFiles = this.app.vault.getFiles().filter((f: TFile) => {
-      if (!exts.has(f.extension)) return false;
-      const p = f.path;
-      if (fileExcludes.some((x) => x === p || x === f.name)) return false;
-      if (folders.some((x) => p === x || p.startsWith(x + "/"))) return false;
-      return true;
-    });
+    this.candidateFiles = this.app.vault
+      .getFiles()
+      .filter((f: TFile) => exts.has(f.extension) && !isExcluded(f.path));
     return this.candidateFiles;
   }
 

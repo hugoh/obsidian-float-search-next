@@ -1,20 +1,29 @@
+import { normalizePath as normalizeVaultPath } from "obsidian";
+import { escapeRegex } from "./regex";
+
 export interface ExclusionRules {
 	excludeFolders: string[];
 	excludeFiles: string[];
 }
 
 export function normalizePath(path: string): string {
-	return path.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+	const normalized = normalizeVaultPath(path.trim());
+	return normalized === "/" ? "" : normalized;
 }
 
 function normalized(paths: string[]): string[] {
 	return paths.map(normalizePath).filter(Boolean);
 }
 
+/**
+ * Anchored `-path:/regex/` terms: a folder matches only as a path prefix and a
+ * file only by its exact path, so the native search agrees with the matcher
+ * below. Escaping keeps odd file names from altering the query.
+ */
 export function buildExcludeClause(rules: ExclusionRules): string {
 	return [
-		...normalized(rules.excludeFolders).map((p) => `-path:"${p}/"`),
-		...normalized(rules.excludeFiles).map((p) => `-path:"${p}"`),
+		...normalized(rules.excludeFolders).map((p) => `-path:/^${escapeRegex(p)}\\//`),
+		...normalized(rules.excludeFiles).map((p) => `-path:/^${escapeRegex(p)}$/`),
 	].join(" ");
 }
 
@@ -35,15 +44,9 @@ export function stripExclusion(rules: ExclusionRules, query: string): string {
 	return stripped.replace(/\s+/g, " ").trim();
 }
 
-export function isPathExcluded(
-	rules: ExclusionRules,
-	path: string,
-	name: string,
-): boolean {
-	if (normalized(rules.excludeFiles).some((f) => f === path || f === name)) {
-		return true;
-	}
-	return normalized(rules.excludeFolders).some(
-		(folder) => path === folder || path.startsWith(`${folder}/`),
-	);
+/** Normalises the rules once, so checking many files stays cheap. */
+export function createExclusionMatcher(rules: ExclusionRules): (path: string) => boolean {
+	const folders = normalized(rules.excludeFolders).map((folder) => `${folder}/`);
+	const files = new Set(normalized(rules.excludeFiles));
+	return (path) => files.has(path) || folders.some((prefix) => path.startsWith(prefix));
 }

@@ -6,6 +6,7 @@
       "name": "float-search",
       "dependencies": {
         "monkey-around": "^2.3.0",
+        "safe-regex2": "^5.1.2",
       },
       "devDependencies": {
         "@eslint/js": "^10.0.1",

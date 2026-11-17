@@ -1,6 +1,7 @@
 import { debounce, prepareFuzzySearch, TFile } from "obsidian";
 import type { App, SearchResult, SearchView } from "obsidian";
 import { strings } from "./i18n";
+import { compileSafeRegex, truncateForRegex } from "./regex";
 import { around } from "monkey-around";
 
 export interface FilterHost {
@@ -54,14 +55,7 @@ export function compileQueryRegex(
 	query: string
 ): RegExp | null {
 	if (!plugin.settings.filterUseRegex || !query.trim()) return null;
-	try {
-		return new RegExp(
-			query,
-			plugin.settings.filterMatchCase ? "m" : "im"
-		);
-	} catch {
-		return null;
-	}
+	return compileSafeRegex(query, plugin.settings.filterMatchCase ? "m" : "im");
 }
 
 /** Use the native parser for regex searches, rather than filtering a literal search. */
@@ -162,8 +156,9 @@ export function matchAsSearchResult(
 		if (!re) return null;
 		// Native search ignores zero-width matches and continues to the next one.
 		const scan = new RegExp(re.source, re.flags + "g");
+		const searched = truncateForRegex(text);
 		let match: RegExpExecArray | null;
-		while ((match = scan.exec(text))) {
+		while ((match = scan.exec(searched))) {
 			if (match[0].length) {
 				return { score: 1, matches: [[match.index, match.index + match[0].length]] };
 			}
