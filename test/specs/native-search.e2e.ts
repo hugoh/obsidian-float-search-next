@@ -57,12 +57,24 @@ describe("Floating native search", () => {
   it("applies exclusion rules to the native search", async () => {
     await updateSettings({ excludeFolders: ["Archive"] });
     await searchFor("pineapple");
-    await waitForResults();
-    const texts: string[] = [];
-    for (const el of await browser.$$(TITLES)) {
-      texts.push((await el.getText()).split("\n")[0] ?? "");
-    }
+    let texts: string[] = [];
+    // The list re-renders as results stream in, so wait for a readable, complete one.
+    await browser.waitUntil(
+      async () => {
+        try {
+          texts = [];
+          for (const el of await browser.$$(TITLES)) {
+            texts.push((await el.getText()).split("\n")[0] ?? "");
+          }
+          return texts.includes("Pineapple");
+        } catch {
+          return false;
+        }
+      },
+      {
+        timeoutMsg: `the native search never listed Pineapple; saw ${JSON.stringify(texts)} for input ${JSON.stringify(await browser.$(".float-search-modal .search-input-container input").getValue())}`,
+      },
+    );
     expect(texts).not.toContain("Old");
-    expect(texts).toContain("Pineapple");
   });
 });

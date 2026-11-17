@@ -44,6 +44,30 @@ describe("Settings", () => {
     );
   });
 
+  it("saves a pending change when the plugin is unloaded straight away", async () => {
+    await waitForPlugin();
+    await browser.executeObsidian(async ({ app }, id) => {
+      const plugin = app.plugins.plugins[id];
+      plugin.settings.showInstructions = false;
+      plugin.applySettingsUpdate();
+      await app.plugins.disablePlugin(id);
+      await app.plugins.enablePlugin(id);
+    }, PLUGIN_ID);
+    await waitForPlugin();
+    await browser.waitUntil(
+      async () =>
+        browser.executeObsidian(
+          ({ app }, id) =>
+            app.plugins.plugins[id].settings.showInstructions === false,
+          PLUGIN_ID,
+        ),
+      {
+        timeout: 5000,
+        timeoutMsg: "the change made just before unloading was lost",
+      },
+    );
+  });
+
   it("recovers from invalid saved settings instead of failing to load", async () => {
     await browser.executeObsidian(async ({ app }, id) => {
       await app.plugins.plugins[id].saveData({

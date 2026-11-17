@@ -54,7 +54,7 @@ jobs:
       - name: Build
         run: |
           bun install --frozen-lockfile
-          bun test
+          bun run test
           bun run lint
           bun run build
 
@@ -67,5 +67,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          gh release upload "$TAG" main.js manifest.json
+          gh release upload "$TAG" main.js manifest.json styles.css
           gh release edit "$TAG" --draft=false --latest

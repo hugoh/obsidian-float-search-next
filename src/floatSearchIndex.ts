@@ -25,7 +25,7 @@ import {
   WorkspaceLeaf,
 } from "obsidian";
 import { FloatSearchCmdkModal } from "./cmdkModal";
-import { ContentCache } from "./contentCache";
+
 import { stripExclusion, withExclusion } from "./exclusions";
 import { registerFilterIcons } from "./filterBar";
 import { strings } from "./i18n";
@@ -181,8 +181,6 @@ export default class FloatSearchPlugin extends Plugin {
       this.registerDoubleKeyHandler();
     });
 
-    this.registerContentCacheInvalidation();
-
     this.registerObsidianURIHandler();
     this.registerObsidianCommands();
     this.registerEditorMenuHandler();
@@ -199,34 +197,10 @@ export default class FloatSearchPlugin extends Plugin {
 
   onunload() {
     // this.state = DEFAULT_SETTINGS.searchViewState;
+    // Saving is debounced; do not drop a change made just before unloading.
+    void this.applySettingsUpdate.run();
     this.modal?.close();
     this.cmdkModal?.close();
-    this.contentCache.clear();
-  }
-
-  // Shared across every CMDK open so repeated searches rarely re-read bodies.
-  private readonly contentCache = new ContentCache();
-
-  async readContent(file: TFile): Promise<string> {
-    const cached = this.contentCache.get(file.path, file.stat.mtime);
-    if (cached !== undefined) return cached;
-    const text = await this.app.vault.cachedRead(file);
-    this.contentCache.set(file.path, file.stat.mtime, text);
-    return text;
-  }
-
-  private registerContentCacheInvalidation() {
-    this.registerEvent(
-      this.app.vault.on("modify", (f) => this.contentCache.delete(f.path)),
-    );
-    this.registerEvent(
-      this.app.vault.on("rename", (_f, oldPath) =>
-        this.contentCache.delete(oldPath),
-      ),
-    );
-    this.registerEvent(
-      this.app.vault.on("delete", (f) => this.contentCache.delete(f.path)),
-    );
   }
 
   // Candidate ⑤: run the prototype monkeypatches exactly once, on first use,

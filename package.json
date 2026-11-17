@@ -18,8 +18,6 @@
   "author": "Boninall",
   "license": "GPL-3.0",
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@eslint/json": "2.1.1",
     "@types/bun": "^1.4.4",
     "@types/mocha": "^10.0.10",
     "@types/node": "^16.18.50",
@@ -35,7 +33,6 @@
     "globals": "^17.14.0",
     "mocha": "^12.0.3",
     "obsidian": "^1.12.3",
-    "tslib": "2.4.0",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.73.0",
     "wdio-obsidian-reporter": "^3.5.0",

@@ -509,7 +509,8 @@ test('plugin unload closes both the native search and CMDK modal', () => {
   h.default.prototype.onunload.call({
     modal: { close() { closed.push('native'); } },
     cmdkModal: { close() { closed.push('cmdk'); } },
-    contentCache: { clear() {} },
+        applySettingsUpdate: { run() {} },
+
   });
   assert.deepEqual(closed.sort(), ['cmdk', 'native']);
 });

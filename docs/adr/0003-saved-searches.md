@@ -1,5 +1,7 @@
 # ADR-0003: 预设搜索（Saved Searches）
 
+> **Note (consolidated version).** Saved searches now carry a stable `id` (so commands survive renames), and quick search has its own query engine (`src/searchFilter.ts`) that understands these operators, so presets can run there as well. See [docs/consolidation.md](../consolidation.md).
+
 - 状态：Proposed
 - 日期：2026-07-07
 

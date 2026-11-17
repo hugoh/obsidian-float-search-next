@@ -246,7 +246,7 @@ function createHarness() {
     normalizePath: (p) => String(p).replace(/^\/+|\/+$/g, ''),
     withExclusion: (q) => q,
     stripExclusion: (q) => q,
-    readContent(file) { return this.app.vault.cachedRead(file); },
+
   };
   return { ...load('floatSearchIndex'), FloatSearchCmdkModal: load('cmdkModal').FloatSearchCmdkModal, FloatSearchModal: load('nativeModal').FloatSearchModal, filters: load('filterBar'), clock, app, plugin,
     mainLeaf, makeLeaf, leafModule, spawned, TFile, ElementStub };

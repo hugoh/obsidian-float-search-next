@@ -20,7 +20,7 @@ provenance record.
 | Exclude folders / files | [Peingxious/Obsidian-Float-Search](https://github.com/Peingxious/Obsidian-Float-Search) | Reworked, see fixes. |
 | Saved searches (presets), filter chips, generated commands | Peingxious | |
 | Obsidian query syntax engine (`tag:`, `path:`, `[prop::v]`, `line:`, `OR`, ...) | Peingxious | `src/searchFilter.ts` |
-| CMDK performance work: debounce, candidate-file cache, content cache, lazy patches | Peingxious | |
+| CMDK performance work: debounce, candidate-file cache, lazy patches | Peingxious | Its content cache was later removed (fix 20). |
 | Fixes: crash highlighting in embedded previews, `setState` re-entry loop, memory leaks, clear query on open | Peingxious | |
 | ADRs in `docs/adr/` | Peingxious | Design rationale for the three features above. |
 
@@ -77,7 +77,7 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 17 | Quick-create threw on a same-name note and its title format only knew 7 tokens | `vault.create` without a collision check; hand-rolled `formatTimestamp` | `uniqueNotePath` appends `1`, `2`...; titles use Obsidian's `moment` (literal text in `[brackets]`) and are made filename-safe | `quickCreate.test.ts`, e2e |
 | 18 | Double-tap shortcut did nothing in popout windows | Listeners were attached to the main `document` only | Attached per window (`window-open`) | e2e (main window) |
 | 19 | `innerHTML` used for the filter icons | Inline SVG strings | Registered with `addIcon` and rendered with `setIcon` | e2e |
-| 20 | Content cache could grow without a byte limit and duplicated its LRU logic in the modal | Count-only cap | `ContentCache` (entries and bytes, LRU, cleared on unload), read through `plugin.readContent` | `contentCache.test.ts` |
+| 20 | Plugin-level content cache (up to 64 MB) duplicated Obsidian's own read cache | Peingxious's "warm cache" optimisation | Removed after measuring in a real Obsidian: `vault.cachedRead` over 3,000 notes took 17 ms cold and 0 ms warm. Quick search now calls `cachedRead` directly | measurement |
 | 21 | Quick-search previews rendered notes automatically, which runs other plugins' code blocks (Dataview, Templater) | By design, undocumented | New setting *Preview results automatically* (default on, documented). Off means preview on `Tab` only (`Shift+Tab` closes). | `settings.test.ts`, e2e |
 | 22 | Exclusion setting suggested protection (placeholder `secrets.md`) it does not provide | Wording | Renamed to "Hide from results", examples changed, description and README say it is a convenience filter, not a privacy control | docs |
 | 23 | A refused (unsafe or invalid) regex looked like "no results" | Silent fallback | Quick search shows a notice row explaining why | `cmdkResult.test.ts`, e2e |
@@ -85,6 +85,10 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 25 | Native-modal Tab-preview and auto-preview duplicated item-to-target logic | Copy of the same branch | One `previewItem` | regression tests |
 | 26 | The open-search-view command depended on `leaf.parentSplit.parent` (undeclared, nullable) | Private-structure access | `getContainer()` / `getRoot()` in `openSearchView` | e2e |
 | 27 | Plain settings were invisible to Obsidian's settings search (1.13+) | Imperative tab only | `getSettingDefinitions()` describes them (the tab itself is still drawn by `display()`) | lint rule, manual |
+| 28 | Release left out `styles.css`, so installs from a release had no styling | Copied from a template that had no CSS | Upload `styles.css` too; the release gate runs the full `bun run test` | `release.test.ts` |
+| 29 | A settings change made just before quitting was dropped | Debounced save never flushed on unload | `onunload` runs the pending save | e2e |
+| 30 | Design notes (ADRs) described the pre-merge exclusion rule and cache | Written before consolidation | Marked as revised/superseded, ADR 0002 corrected | docs |
+| 31 | Unused dev dependencies (`@eslint/js`, `@eslint/json`, `tslib`) | Copied from a template | Removed along with `importHelpers` | lint, build |
 
 ## Refactors (behaviour unchanged)
 

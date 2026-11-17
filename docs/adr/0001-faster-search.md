@@ -1,5 +1,7 @@
 # ADR-0001: 提速（启动与搜索都更快）
 
+> **Note (consolidated version).** This records the original proposal. A plugin-level content cache was tried and later removed: measured in Obsidian, `vault.cachedRead` is already cached (3,000 notes: 17 ms cold, 0 ms warm). See [docs/consolidation.md](../consolidation.md).
+
 - 状态：Proposed
 - 日期：2026-07-07
 

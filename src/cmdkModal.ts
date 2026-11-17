@@ -474,7 +474,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
         let text: string;
         try {
-          text = await this.plugin.readContent(file);
+          text = await this.app.vault.cachedRead(file);
         } catch {
           continue;
         }
