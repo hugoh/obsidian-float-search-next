@@ -1,5 +1,12 @@
 import type { App, CachedMetadata, TFile } from "obsidian";
 import { getAllTags } from "obsidian";
+import {
+  anyUnitHasAllTerms,
+  parseTerms,
+  splitBlocks,
+  splitLines,
+  splitSections,
+} from "./sameUnit";
 
 /**
  * SearchFilter — the single source of truth for matching files against
@@ -89,12 +96,55 @@ export function isPlainText(query: Query): boolean {
   );
 }
 
+/** The first line of `text` containing a term of any positive content clause. */
+export function firstMatchLine(
+  text: string,
+  query: Query,
+): { line: number; text: string } {
+  const terms: string[] = [];
+  for (const clause of query.groups.flat()) {
+    if (clause.negated) continue;
+    if (
+      clause.kind === "line" ||
+      clause.kind === "block" ||
+      clause.kind === "section"
+    ) {
+      terms.push(...parseTerms(clause.value));
+    } else if (
+      clause.kind === "content" ||
+      (clause.kind === "task" && clause.value)
+    ) {
+      terms.push((clause.value ?? "").toLowerCase());
+    }
+  }
+  const lines = splitLines(text);
+  const hit = lines.findIndex((line) => {
+    const lower = line.toLowerCase();
+    return terms.some((term) => lower.includes(term));
+  });
+  const index = hit >= 0 ? hit : lines.findIndex((line) => line.trim());
+  return index >= 0
+    ? { line: index, text: (lines[index] ?? "").trim() }
+    : { line: 0, text: "" };
+}
+
 /** Tokenize respecting double quotes; keeps `-` negation prefix attached. */
 function tokenize(raw: string): string[] {
   const tokens: string[] = [];
-  const re = /-?"[^"]*"|-?\S+/g;
+  // `op:(a b)` keeps its parenthesised terms together as one token.
+  const re = /-?[A-Za-z-]+:\([^)]*\)|-?"[^"]*"|-?\S+/g;
   for (let m = re.exec(raw); m !== null; m = re.exec(raw)) tokens.push(m[0]);
   return tokens;
+}
+
+/** `(a b)` becomes `a b`; a value without parentheses is unchanged. */
+function unwrap(value: string): string {
+  return value.replace(/^\((.*)\)$/s, "$1").trim();
+}
+
+/** Re-add the parentheses when a value holds more than one term. */
+function wrapTerms(value: string): string {
+  return /\s/.test(value) ? `(${value})` : value;
 }
 
 function parseClause(token: string): Clause | null {
@@ -148,11 +198,13 @@ function parseClause(token: string): Clause | null {
   const name = op("file") ?? op("filename") ?? op("name");
   if (name !== null) return { kind: "name", value: name, negated };
   const line = op("line");
-  if (line !== null) return { kind: "line", value: line, negated };
+  if (line !== null) return { kind: "line", value: unwrap(line), negated };
   const block = op("block");
-  if (block !== null) return { kind: "block", value: block, negated };
+  if (block !== null) return { kind: "block", value: unwrap(block), negated };
   const section = op("section");
-  if (section !== null) return { kind: "section", value: section, negated };
+  if (section !== null) {
+    return { kind: "section", value: unwrap(section), negated };
+  }
   const content = op("content");
   if (content !== null) return { kind: "content", value: content, negated };
   const task = t.match(/^task:(.*)$/i);
@@ -308,11 +360,11 @@ export class SearchFilter {
         return this.fileHasTag(file, asTag, cache);
       }
       case "line":
-        return this.bodyHasLine(content, c.value);
+        return this.termsInOneUnit(content, c.value, splitLines);
       case "block":
-        return this.bodyHasBlock(content, c.value);
+        return this.termsInOneUnit(content, c.value, splitBlocks);
       case "section":
-        return this.fileHasSection(file, c.value, cache);
+        return this.termsInOneUnit(content, c.value, splitSections);
       case "content":
         return content?.toLowerCase().includes(c.value.toLowerCase()) ?? false;
       case "task":
@@ -320,28 +372,14 @@ export class SearchFilter {
     }
   }
 
-  private bodyHasLine(content: string | null, value: string): boolean {
-    if (!content) return false;
-    const v = value.toLowerCase();
-    return content.split("\n").some((line) => line.toLowerCase().includes(v));
-  }
-
-  private bodyHasBlock(content: string | null, value: string): boolean {
-    if (!content) return false;
-    // Obsidian block references are written as `^blockid`
-    return content.includes("^" + value);
-  }
-
-  private fileHasSection(
-    file: TFile,
+  /** Obsidian's `line:` / `block:` / `section:`: every term inside one unit of the body. */
+  private termsInOneUnit(
+    content: string | null,
     value: string,
-    precomputed?: CachedMetadata | null,
+    split: (body: string) => string[],
   ): boolean {
-    const cache = precomputed ?? this.app.metadataCache.getFileCache(file);
-    const v = value.toLowerCase();
-    return (
-      cache?.headings?.some((h) => h.heading.toLowerCase().includes(v)) ?? false
-    );
+    if (!content) return false;
+    return anyUnitHasAllTerms(split(content), parseTerms(value));
   }
 
   private fileHasTask(content: string | null, value?: string): boolean {
@@ -446,11 +484,11 @@ export class SearchFilter {
         return neg + c.value;
       }
       case "line":
-        return neg + "line:" + c.value;
+        return `${neg}line:${wrapTerms(c.value)}`;
       case "block":
-        return neg + "block:" + c.value;
+        return `${neg}block:${wrapTerms(c.value)}`;
       case "section":
-        return neg + "section:" + c.value;
+        return `${neg}section:${wrapTerms(c.value)}`;
       case "content":
         return neg + "content:" + c.value;
       case "task":

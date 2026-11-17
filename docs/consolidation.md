@@ -89,6 +89,11 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 29 | A settings change made just before quitting was dropped | Debounced save never flushed on unload | `onunload` runs the pending save | e2e |
 | 30 | Design notes (ADRs) described the pre-merge exclusion rule and cache | Written before consolidation | Marked as revised/superseded, ADR 0002 corrected | docs |
 | 31 | Unused dev dependencies (`@eslint/js`, `@eslint/json`, `tslib`) | Copied from a template | Removed along with `importHelpers` | lint, build |
+| 32 | The last search text was written to `data.json` in plaintext (and never read back) | `persistViewState` and the modal saved the whole view state | The query is no longer persisted or restored; old saved queries are discarded on load | `settings.test.ts`, e2e |
+| 33 | Mod+Shift+Enter named a note from the raw input: link characters (`#`, `^`, `[`, `]`) were kept and the injected exclusion clause leaked into the name | Incomplete sanitising | `noteNameFromText` (after stripping the clause); nothing usable means nothing is created | `quickCreate.test.ts`, e2e |
+| 34 | `block:` and `section:` did not mean what they mean in Obsidian (block id, heading text) | Peingxious's own reading of the operators | Aligned with Obsidian: `line:`, `block:`, `section:` need every term in the same line, block or section; `op:(a b)` groups terms. Blocks and sections are approximated from the note text (paragraphs, list items, headings) | `sameUnit.test.ts`, `searchFilter.test.ts`, e2e |
+| 35 | Filters persist across sessions but nothing showed when one was hiding results | Silent persistence | A marker ("N filters on" with Reset) appears whenever a filter differs from its default | `filterBar.test.ts`, e2e |
+| 36 | Minimum Obsidian version was only assumed to work | Tested on latest only | e2e also runs on Obsidian 1.5.12 (oldest stable at or above 1.5.7) locally and in CI | e2e |
 
 ## Refactors (behaviour unchanged)
 
@@ -111,12 +116,6 @@ Each entry: what was wrong, why, the fix, and what guards it now.
   exclusions, regex safety, i18n.
 - e2e (`wdio-obsidian-service`, real Obsidian, `test/specs/`): quick search,
   exclusions, saved searches, native search modal.
-
-## Behaviour notes
-
-- `block:` and `section:` in the quick-search query engine match a block id and
-  a heading text respectively; Obsidian's native `block:` / `section:` mean "terms
-  in the same block / section". The native search view is unaffected.
 
 ## Tooling decisions
 

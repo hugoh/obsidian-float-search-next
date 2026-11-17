@@ -136,8 +136,13 @@ describe("obsidian://fs", () => {
     await closeModals();
   });
 
-  it("falls back to the modal for an unknown viewType", async () => {
+  it("falls back to the modal for an unknown viewType", async function () {
     await waitForPlugin();
+    // Older Obsidian versions keep protocol handlers elsewhere.
+    const supported = await browser.executeObsidian(({ app }) =>
+      Boolean(app.workspace.protocolHandler),
+    );
+    if (!supported) this.skip();
     await browser.executeObsidian(({ app }) => {
       app.workspace.protocolHandler.handlers.get("fs")?.({
         action: "fs",

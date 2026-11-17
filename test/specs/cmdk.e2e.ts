@@ -5,6 +5,7 @@ import {
   closeModals,
   hasResult,
   openCmdk,
+  PLUGIN_ID,
   updateSettings,
   waitForResult,
 } from "./helpers";
@@ -16,6 +17,9 @@ describe("Quick search (CMDK)", () => {
       excludeFiles: [],
       filterUseRegex: false,
       filterMatchCase: false,
+      filterStarredOnly: false,
+      filterIncludeBases: true,
+      filterIncludeCanvas: true,
       cmdkAutoPreview: true,
     });
   });
@@ -62,6 +66,53 @@ describe("Quick search (CMDK)", () => {
       .$(".float-search-cmdk-expanded")
       .waitForExist({ timeout: 10_000 });
     await updateSettings({ cmdkAutoPreview: true });
+  });
+
+  it("marks active filters and lets you reset them", async () => {
+    await updateSettings({ filterStarredOnly: true, filterMatchCase: true });
+    await openCmdk();
+    const marker = browser.$(".float-search-cmdk-container .fs-filter-active");
+    await marker.waitForDisplayed();
+    expect(await marker.getText()).toContain("2 filters on");
+
+    await marker.$("button").click();
+    await browser.waitUntil(async () => !(await marker.isDisplayed()), {
+      timeoutMsg: "the marker stayed after Reset",
+    });
+    const settings = await browser.executeObsidian(
+      ({ app }, id) => app.plugins.plugins[id].settings,
+      PLUGIN_ID,
+    );
+    expect(settings.filterStarredOnly).toBe(false);
+    expect(settings.filterMatchCase).toBe(false);
+  });
+
+  it("shows no marker with the default filters", async () => {
+    await openCmdk();
+    expect(
+      await browser
+        .$(".float-search-cmdk-container .fs-filter-active")
+        .isDisplayed(),
+    ).toBe(false);
+  });
+
+  it("block: needs every term in the same paragraph", async () => {
+    const input = await openCmdk();
+    await input.setValue("block:(yellow pineapple)");
+    await waitForResult("Banana");
+    await input.setValue("block:(tropical yellow)");
+    await browser.pause(800);
+    expect(await hasResult("Banana")).toBe(false);
+    expect(await hasResult("Pineapple")).toBe(false);
+  });
+
+  it("section: needs every term under the same heading", async () => {
+    const input = await openCmdk();
+    await input.setValue("section:(banana yellow)");
+    await waitForResult("Banana");
+    await input.setValue("section:(banana tropical)");
+    await browser.pause(800);
+    expect(await hasResult("Banana")).toBe(false);
   });
 
   it("renders the filter icons", async () => {

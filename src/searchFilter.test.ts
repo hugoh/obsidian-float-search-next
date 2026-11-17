@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { App, CachedMetadata, TFile } from "obsidian";
 import {
+  firstMatchLine,
   freeText,
   isPlainText,
   parseQuery,
@@ -196,14 +197,44 @@ describe("SearchFilter.matchContent", () => {
     expect(match("content:needle", "nothing")).toBe(false);
   });
 
-  test("line matches within a single line", () => {
+  test("line needs every term on one line", () => {
     expect(match("line:foo", "foo bar\nbaz")).toBe(true);
-    expect(match("line:foo", "foa\nbar")).toBe(false);
+    expect(match("line:(foo bar)", "foo and bar\nbaz")).toBe(true);
+    expect(match("line:(foo baz)", "foo bar\nbaz")).toBe(false);
   });
 
-  test("block matches a block reference id", () => {
+  test("block needs every term in one block, like Obsidian", () => {
+    const body = "alpha beta\ngamma\n\ndelta";
+    expect(match("block:(alpha gamma)", body)).toBe(true);
+    expect(match("block:(alpha delta)", body)).toBe(false);
+    expect(match("block:alpha", body)).toBe(true);
+  });
+
+  test("each list item is its own block", () => {
+    expect(match("block:(one two)", "- one\n- two")).toBe(false);
+    expect(match("block:(one two)", "- one two\n- three")).toBe(true);
+  });
+
+  test("a single term is matched as plain text, reference ids included", () => {
     expect(match("block:abc", "text ^abc")).toBe(true);
-    expect(match("block:abc", "text abc")).toBe(false);
+    expect(match("block:(text xyz)", "text ^abc")).toBe(false);
+  });
+
+  test("section needs every term between the same two headings", () => {
+    const body = "intro\n# One\nalpha\n\nbeta\n# Two\ngamma";
+    expect(match("section:(alpha beta)", body)).toBe(true);
+    expect(match("section:(alpha gamma)", body)).toBe(false);
+    expect(match("section:(intro alpha)", body)).toBe(false);
+  });
+
+  test("a quoted phrase must appear as written", () => {
+    expect(match('block:("two words" x)', "two words x")).toBe(true);
+    expect(match('block:("two words" x)', "two other words x")).toBe(false);
+  });
+
+  test("negated line, block and section exclude notes that match", () => {
+    expect(match("-block:(alpha beta)", "alpha beta")).toBe(false);
+    expect(match("-section:(alpha beta)", "alpha\n# H\nbeta")).toBe(true);
   });
 
   test("task matches checkbox lines, optionally by text", () => {
@@ -213,17 +244,32 @@ describe("SearchFilter.matchContent", () => {
     expect(match("task:", "- plain")).toBe(false);
   });
 
-  test("section matches headings from the metadata cache", () => {
-    const cache = {
-      headings: [{ heading: "Meeting Notes" }],
-    } as unknown as CachedMetadata;
-    expect(match("section:meeting", "x", cache)).toBe(true);
-    expect(match("section:other", "x", cache)).toBe(false);
-  });
-
   test("negated content excludes files that contain it", () => {
     expect(match("-content:secret", "has secret")).toBe(false);
     expect(match("-content:secret", "clean")).toBe(true);
+  });
+});
+
+describe("grouped operator values", () => {
+  test("parseQuery keeps parenthesised terms together as one clause", () => {
+    expect(parseQuery("block:(foo bar) tag:x").groups[0]).toEqual([
+      { kind: "block", value: "foo bar", negated: false },
+      { kind: "tag", tag: "#x", negated: false, quoted: false },
+    ]);
+  });
+
+  test("a single term needs no parentheses", () => {
+    expect(parseQuery("section:foo").groups[0]?.[0]).toMatchObject({
+      kind: "section",
+      value: "foo",
+    });
+  });
+
+  test("toNativeQuery restores the parentheses", () => {
+    expect(filter.toNativeQuery("block:(foo bar)")).toBe("block:(foo bar)");
+    expect(filter.toNativeQuery("-line:(a b) section:c")).toBe(
+      "-line:(a b) section:c",
+    );
   });
 });
 
@@ -260,5 +306,48 @@ describe("isPlainText", () => {
     expect(isPlainText(parseQuery("hello tag:a"))).toBe(false);
     expect(isPlainText(parseQuery("-hello"))).toBe(false);
     expect(isPlainText(parseQuery("a OR b"))).toBe(true);
+  });
+});
+
+describe("firstMatchLine", () => {
+  const text = "intro\nalpha here\nbeta there\n";
+
+  test("finds the first line containing a term of a content clause", () => {
+    expect(firstMatchLine(text, parseQuery("content:beta"))).toEqual({
+      line: 2,
+      text: "beta there",
+    });
+  });
+
+  test("uses every term of a grouped clause", () => {
+    expect(firstMatchLine(text, parseQuery("block:(beta alpha)"))).toEqual({
+      line: 1,
+      text: "alpha here",
+    });
+  });
+
+  test("ignores negated clauses", () => {
+    expect(
+      firstMatchLine(text, parseQuery("-content:alpha content:beta")),
+    ).toEqual({
+      line: 2,
+      text: "beta there",
+    });
+  });
+
+  test("falls back to the first non-empty line", () => {
+    expect(
+      firstMatchLine("\n\n  first  \nsecond", parseQuery("content:zzz")),
+    ).toEqual({
+      line: 2,
+      text: "first",
+    });
+  });
+
+  test("an empty note has no line", () => {
+    expect(firstMatchLine("", parseQuery("content:x"))).toEqual({
+      line: 0,
+      text: "",
+    });
   });
 });

@@ -54,6 +54,38 @@ describe("Floating native search", () => {
     expect(await input.getValue()).toBe("pineapple -path:/^Archive\\//");
   });
 
+  it("does not write the search text to disk", async () => {
+    await searchFor("topsecretneedle");
+    await closeModals();
+    await browser.executeObsidian(({ app }, id) => {
+      app.plugins.plugins[id].applySettingsUpdate();
+    }, PLUGIN_ID);
+    await browser.pause(1800);
+    const saved = await browser.executeObsidian(
+      async ({ app }, id) =>
+        JSON.stringify(await app.plugins.plugins[id].loadData()),
+      PLUGIN_ID,
+    );
+    expect(saved).not.toContain("topsecretneedle");
+  });
+
+  it("names a note from the search text without link characters (Mod+Shift+Enter)", async () => {
+    await searchFor("my#idea^x");
+    // "Mod" is Cmd on macOS and Ctrl elsewhere.
+    await browser.keys([
+      process.platform === "darwin" ? "Meta" : "Control",
+      "Shift",
+      "Enter",
+    ]);
+    await browser.waitUntil(
+      async () =>
+        browser.executeObsidian(
+          ({ app }) => app.workspace.getActiveFile()?.path === "my-idea-x.md",
+        ),
+      { timeoutMsg: "the note my-idea-x.md was not opened" },
+    );
+  });
+
   it("applies exclusion rules to the native search", async () => {
     await updateSettings({ excludeFolders: ["Archive"] });
     await searchFor("pineapple");

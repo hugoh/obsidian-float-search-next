@@ -31,7 +31,7 @@ import { type EmbeddedView, spawnLeafView } from "./leafView";
 import { promptForName } from "./namePrompt";
 import { safeFileName, uniqueNotePath } from "./quickCreate";
 import {
-  type Clause,
+  firstMatchLine,
   freeText,
   isPlainText,
   parseQuery,
@@ -483,7 +483,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
         if (contentMode) {
           // Full query evaluation including content operators.
           if (!this.searchFilter.matchContent(file, text, query)) continue;
-          const lineInfo = this.firstMatchLine(text, query);
+          const lineInfo = firstMatchLine(text, query);
           chooser.addSuggestion({
             file,
             nameMatch: null,
@@ -534,43 +534,6 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
     // Start after heading search has a chance to render
     window.setTimeout(() => void processBatch(), contentMode ? 0 : 50);
-  }
-
-  /** First line in `text` matching any positive content clause value. */
-  private firstMatchLine(
-    text: string,
-    query: Query,
-  ): { line: number; text: string } {
-    const clauseValue = (c: Clause): string | undefined => {
-      switch (c.kind) {
-        case "content":
-        case "line":
-        case "section":
-        case "block":
-        case "task":
-          return c.value;
-        default:
-          return undefined;
-      }
-    };
-    const vals: string[] = [];
-    for (const g of query.groups) {
-      for (const c of g) {
-        if (c.negated) continue;
-        const v = clauseValue(c);
-        if (v) vals.push(v.toLowerCase());
-      }
-    }
-    const lines = text.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const low = lines[i].toLowerCase();
-      if (vals.some((v) => low.includes(v)))
-        return { line: i, text: lines[i].trim() };
-    }
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim()) return { line: i, text: lines[i].trim() };
-    }
-    return { line: 0, text: "" };
   }
 
   renderSuggestion(result: CmdkResult, el: HTMLElement) {

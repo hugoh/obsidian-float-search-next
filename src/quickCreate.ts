@@ -18,3 +18,20 @@ export function uniqueNotePath(
 export function safeFileName(title: string): string {
   return title.replace(/[\\/:*?"<>|]/g, "-").trim() || "Untitled";
 }
+
+const MAX_NOTE_NAME = 100;
+
+/**
+ * A note name from free text typed in search, or null if nothing usable is
+ * left. Unlike a timestamp title it must also avoid characters Obsidian reads
+ * as link syntax (`#`, `^`, `[`, `]`).
+ */
+export function noteNameFromText(text: string): string | null {
+  const cleaned = text
+    .replace(/[\\/:*?"<>|#^[\]]/g, "-")
+    .replace(/^[.\s]+/, "")
+    .trim()
+    .slice(0, MAX_NOTE_NAME)
+    .trim();
+  return cleaned || null;
+}

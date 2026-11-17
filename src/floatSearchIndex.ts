@@ -101,7 +101,7 @@ interface SearchViewPrototype {
   setExtraContext(value: boolean): void;
   setMatchingCase(value: boolean): void;
   setSortOrder(value: string): void;
-  setQuery(value: string): void;
+
   setState(state: SearchViewState, eState: unknown): unknown;
 }
 
@@ -153,7 +153,7 @@ export default class FloatSearchPlugin extends Plugin {
     this.settings.searchViewState = {
       ...DEFAULT_SETTINGS.searchViewState,
       ...this.settings.searchViewState,
-      query: this.state?.query || "",
+      query: "",
     };
     await this.saveSettings();
   }, 1000);
@@ -431,7 +431,7 @@ export default class FloatSearchPlugin extends Plugin {
           ...state,
         };
         if (stateSave) this.applyStateUpdate();
-        this.settings.searchViewState = this.state;
+        this.settings.searchViewState = { ...this.state, query: "" };
         this.applySettingsUpdate();
       },
       this,
@@ -840,12 +840,6 @@ export default class FloatSearchPlugin extends Plugin {
             return function (this: SearchView, value: string) {
               old.call(this, value);
               self.persistViewState({ sortOrder: value as SortOrder });
-            };
-          },
-          setQuery(old) {
-            return function (this: SearchView, value: string) {
-              old.call(this, value);
-              self.persistViewState({ query: self.stripExclusion(value) });
             };
           },
           setState(old) {

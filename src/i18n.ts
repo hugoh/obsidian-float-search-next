@@ -47,6 +47,8 @@ export interface Strings {
   doubleTapInterval: string;
   doubleTapIntervalDesc: string;
   autoPreview: string;
+  filtersActive: (count: number) => string;
+  filtersReset: string;
   regexRejected: string;
   autoPreviewDesc: string;
   quickCreateHeading: string;
@@ -149,6 +151,9 @@ const EN: Strings = {
   doubleTapInterval: "Double-tap interval (ms)",
   regexRejected:
     "This regular expression is invalid or too complex to run safely.",
+  filtersActive: (count) =>
+    count === 1 ? "1 filter on" : `${count} filters on`,
+  filtersReset: "Reset",
   autoPreview: "Preview results automatically",
   autoPreviewDesc:
     "Render the selected note beside the results. A preview runs other plugins' code blocks (for example Dataview or Templater), so turn this off if you search vaults you do not trust; press Tab to preview on demand.",
@@ -260,6 +265,8 @@ const ZH: Strings = {
   quickSearchTriggerDesc: "双击此键打开快速搜索（CMDK）。",
   doubleTapInterval: "双击间隔（毫秒）",
   regexRejected: "该正则表达式无效，或过于复杂而无法安全运行。",
+  filtersActive: (count) => `已启用 ${count} 个筛选`,
+  filtersReset: "重置",
   autoPreview: "自动预览结果",
   autoPreviewDesc:
     "在结果旁渲染选中的笔记。预览会运行其他插件的代码块（如 Dataview、Templater），如果搜索不可信的库请关闭；关闭后按 Tab 手动预览。",

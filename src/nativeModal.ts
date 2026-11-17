@@ -17,6 +17,7 @@ import type FloatSearchPlugin from "./floatSearchIndex";
 import { strings } from "./i18n";
 import { LatestQueue } from "./latestQueue";
 import { type EmbeddedView, spawnLeafView } from "./leafView";
+import { noteNameFromText } from "./quickCreate";
 import type { SearchState } from "./settings";
 
 function createInstructionElement(
@@ -377,10 +378,13 @@ export class FloatSearchModal extends Modal {
             !this.focusdItem
           ) {
             e.preventDefault();
-            const fileName = inputEl.value.trim();
-            const real = fileName.replace(/[/\\?%*:|"<>]/g, "-");
-            void this.plugin.app.workspace.openLinkText(real, "", true);
-            this.close();
+            const name = noteNameFromText(
+              this.plugin.stripExclusion(inputEl.value),
+            );
+            if (name) {
+              void this.plugin.app.workspace.openLinkText(name, "", true);
+              this.close();
+            }
             break;
           }
           currentView.onKeyEnterInFocus(e);

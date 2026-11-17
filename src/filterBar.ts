@@ -246,107 +246,158 @@ export function applyNativeResultFilters(
   });
 }
 
+/** How many filters differ from their defaults (those are the ones that can hide results). */
+export function activeFilterCount(settings: FilterHost["settings"]): number {
+  return [
+    !settings.filterIncludeBases,
+    !settings.filterIncludeCanvas,
+    settings.filterStarredOnly,
+    settings.filterMatchCase,
+    settings.filterUseRegex,
+  ].filter(Boolean).length;
+}
+
+export function resetFilters(settings: FilterHost["settings"]): void {
+  settings.filterIncludeBases = true;
+  settings.filterIncludeCanvas = true;
+  settings.filterStarredOnly = false;
+  settings.filterMatchCase = false;
+  settings.filterUseRegex = false;
+}
+
 export function mountFilterBar(
   anchor: HTMLElement,
   plugin: FilterHost,
   onChange: () => void,
 ): HTMLElement {
   const s = strings();
+  let refreshMarker = () => {};
   const persist = async () => {
     await plugin.saveSettings();
+    refreshMarker();
     onChange();
   };
   const row = createDiv({ cls: "float-search-filter-row" });
 
-  const addCheck = (
-    label: string,
-    get: () => boolean,
-    set: (v: boolean) => void,
-  ) => {
-    const wrap = row.createEl("label", { cls: "fs-filter-check" });
-    const input = wrap.createEl("input", { type: "checkbox" });
-    input.checked = get();
-    wrap.appendText(label);
-    input.addEventListener("change", () => {
-      set(input.checked);
-      void persist();
+  // Filters persist across sessions, so say so when any of them is hiding results.
+  const addMarker = () => {
+    const marker = row.createDiv({ cls: "fs-filter-active" });
+    const label = marker.createSpan();
+    const reset = marker.createEl("button", {
+      cls: "fs-filter-reset",
+      text: s.filtersReset,
+      type: "button",
     });
+    reset.onclick = () => {
+      resetFilters(plugin.settings);
+      build();
+      void persist();
+    };
+    refreshMarker = () => {
+      const count = activeFilterCount(plugin.settings);
+      label.setText(s.filtersActive(count));
+      marker.toggle(count > 0);
+      row.toggleClass("has-active-filters", count > 0);
+    };
+    refreshMarker();
   };
 
-  addCheck(
-    s.filterBases,
-    () => plugin.settings.filterIncludeBases,
-    (v) => {
-      plugin.settings.filterIncludeBases = v;
-    },
-  );
-  addCheck(
-    s.filterCanvas,
-    () => plugin.settings.filterIncludeCanvas,
-    (v) => {
-      plugin.settings.filterIncludeCanvas = v;
-    },
-  );
+  const build = () => {
+    row.empty();
 
-  const seg = row.createDiv({ cls: "fs-filter-seg" });
-  seg.setAttribute("role", "radiogroup");
-  seg.setAttribute("aria-label", s.filterStarredOnly);
-  const addSeg = (label: string, starredOnly: boolean) => {
-    const btn = seg.createEl("button", { type: "button", text: label });
-    if (plugin.settings.filterStarredOnly === starredOnly) {
-      btn.addClass("is-active");
-    }
-    btn.onclick = () => {
-      plugin.settings.filterStarredOnly = starredOnly;
-      seg.querySelectorAll("button").forEach((b) => {
-        b.removeClass("is-active");
+    const addCheck = (
+      label: string,
+      get: () => boolean,
+      set: (v: boolean) => void,
+    ) => {
+      const wrap = row.createEl("label", { cls: "fs-filter-check" });
+      const input = wrap.createEl("input", { type: "checkbox" });
+      input.checked = get();
+      wrap.appendText(label);
+      input.addEventListener("change", () => {
+        set(input.checked);
+        void persist();
       });
-      btn.addClass("is-active");
-      void persist();
     };
-  };
-  addSeg(s.filterAll, false);
-  addSeg(s.filterStarredOnly, true);
 
-  row.createDiv({ cls: "fs-filter-spacer" });
+    addCheck(
+      s.filterBases,
+      () => plugin.settings.filterIncludeBases,
+      (v) => {
+        plugin.settings.filterIncludeBases = v;
+      },
+    );
+    addCheck(
+      s.filterCanvas,
+      () => plugin.settings.filterIncludeCanvas,
+      (v) => {
+        plugin.settings.filterIncludeCanvas = v;
+      },
+    );
 
-  const addToggleIcon = (
-    label: string,
-    icon: string,
-    get: () => boolean,
-    set: (v: boolean) => void,
-  ) => {
-    const btn = row.createEl("button", { cls: "fs-filter-icon" });
-    btn.type = "button";
-    btn.setAttribute("aria-label", label);
-    btn.setAttribute("aria-pressed", get() ? "true" : "false");
-    if (get()) btn.addClass("is-active");
-    setIcon(btn, icon);
-    btn.onclick = () => {
-      const next = !get();
-      set(next);
-      btn.toggleClass("is-active", next);
-      btn.setAttribute("aria-pressed", next ? "true" : "false");
-      void persist();
+    const seg = row.createDiv({ cls: "fs-filter-seg" });
+    seg.setAttribute("role", "radiogroup");
+    seg.setAttribute("aria-label", s.filterStarredOnly);
+    const addSeg = (label: string, starredOnly: boolean) => {
+      const btn = seg.createEl("button", { type: "button", text: label });
+      if (plugin.settings.filterStarredOnly === starredOnly) {
+        btn.addClass("is-active");
+      }
+      btn.onclick = () => {
+        plugin.settings.filterStarredOnly = starredOnly;
+        seg.querySelectorAll("button").forEach((b) => {
+          b.removeClass("is-active");
+        });
+        btn.addClass("is-active");
+        void persist();
+      };
     };
-  };
+    addSeg(s.filterAll, false);
+    addSeg(s.filterStarredOnly, true);
 
-  addToggleIcon(
-    s.filterMatchCase,
-    CASE_ICON,
-    () => plugin.settings.filterMatchCase,
-    (v) => {
-      plugin.settings.filterMatchCase = v;
-    },
-  );
-  addToggleIcon(
-    s.filterRegex,
-    REGEX_ICON,
-    () => plugin.settings.filterUseRegex,
-    (v) => {
-      plugin.settings.filterUseRegex = v;
-    },
-  );
+    row.createDiv({ cls: "fs-filter-spacer" });
+
+    const addToggleIcon = (
+      label: string,
+      icon: string,
+      get: () => boolean,
+      set: (v: boolean) => void,
+    ) => {
+      const btn = row.createEl("button", { cls: "fs-filter-icon" });
+      btn.type = "button";
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("aria-pressed", get() ? "true" : "false");
+      if (get()) btn.addClass("is-active");
+      setIcon(btn, icon);
+      btn.onclick = () => {
+        const next = !get();
+        set(next);
+        btn.toggleClass("is-active", next);
+        btn.setAttribute("aria-pressed", next ? "true" : "false");
+        void persist();
+      };
+    };
+
+    addToggleIcon(
+      s.filterMatchCase,
+      CASE_ICON,
+      () => plugin.settings.filterMatchCase,
+      (v) => {
+        plugin.settings.filterMatchCase = v;
+      },
+    );
+    addToggleIcon(
+      s.filterRegex,
+      REGEX_ICON,
+      () => plugin.settings.filterUseRegex,
+      (v) => {
+        plugin.settings.filterUseRegex = v;
+      },
+    );
+
+    addMarker();
+  };
+  build();
 
   anchor.insertAdjacentElement("afterend", row);
   return row;

@@ -138,7 +138,8 @@ function sanitizeViewState(raw: unknown): SearchState {
     explainSearch: bool(state.explainSearch, defaults.explainSearch ?? false),
     extraContext: bool(state.extraContext, defaults.extraContext ?? false),
     matchingCase: bool(state.matchingCase, defaults.matchingCase ?? false),
-    query: text(state.query, ""),
+    // Never restore a saved query: searches open empty, and queries may be private.
+    query: "",
     sortOrder: oneOf(
       state.sortOrder,
       SORT_ORDERS,

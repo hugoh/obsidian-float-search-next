@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { TFile } from "obsidian";
 import {
+  activeFilterCount,
   buildNativeRegexQuery,
   compileQueryRegex,
   type FilterHost,
   isFileAllowed,
   matchAsSearchResult,
+  resetFilters,
 } from "./filterBar";
 
 function host(overrides: Partial<FilterHost["settings"]> = {}): FilterHost {
@@ -167,5 +169,54 @@ describe("matchAsSearchResult", () => {
     expect(
       matchAsSearchResult(host({ filterUseRegex: true }), "abc", "("),
     ).toBeNull();
+  });
+});
+
+describe("activeFilterCount", () => {
+  test("is zero with the default filters", () => {
+    expect(activeFilterCount(host().settings)).toBe(0);
+  });
+
+  test("counts every filter that differs from the default", () => {
+    expect(activeFilterCount(host({ filterStarredOnly: true }).settings)).toBe(
+      1,
+    );
+    expect(
+      activeFilterCount(host({ filterIncludeBases: false }).settings),
+    ).toBe(1);
+    expect(
+      activeFilterCount(host({ filterIncludeCanvas: false }).settings),
+    ).toBe(1);
+    expect(
+      activeFilterCount(
+        host({ filterMatchCase: true, filterUseRegex: true }).settings,
+      ),
+    ).toBe(2);
+  });
+
+  test("counts all five when everything is changed", () => {
+    const all = host({
+      filterIncludeBases: false,
+      filterIncludeCanvas: false,
+      filterStarredOnly: true,
+      filterMatchCase: true,
+      filterUseRegex: true,
+    });
+    expect(activeFilterCount(all.settings)).toBe(5);
+  });
+});
+
+describe("resetFilters", () => {
+  test("restores the defaults", () => {
+    const all = host({
+      filterIncludeBases: false,
+      filterIncludeCanvas: false,
+      filterStarredOnly: true,
+      filterMatchCase: true,
+      filterUseRegex: true,
+    });
+    resetFilters(all.settings);
+    expect(all.settings).toEqual(host().settings);
+    expect(activeFilterCount(all.settings)).toBe(0);
   });
 });

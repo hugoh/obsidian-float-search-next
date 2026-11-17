@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { safeFileName, uniqueNotePath } from "./quickCreate";
+import { noteNameFromText, safeFileName, uniqueNotePath } from "./quickCreate";
 
 const taken =
   (...paths: string[]) =>
@@ -42,5 +42,34 @@ describe("safeFileName", () => {
 
   test("never returns an empty name", () => {
     expect(safeFileName("   ")).toBe("Untitled");
+  });
+});
+
+describe("noteNameFromText", () => {
+  test("keeps ordinary text, including non-Latin text", () => {
+    expect(noteNameFromText("hello world")).toBe("hello world");
+    expect(noteNameFromText("笔记 想法")).toBe("笔记 想法");
+  });
+
+  test("replaces characters that are not allowed in file names", () => {
+    expect(noteNameFromText("a/b:c")).toBe("a-b-c");
+  });
+
+  test("replaces characters that Obsidian reads as link syntax", () => {
+    expect(noteNameFromText("a#b^c[d]e")).toBe("a-b-c-d-e");
+  });
+
+  test("drops leading dots so the note is not hidden", () => {
+    expect(noteNameFromText(".hidden")).toBe("hidden");
+  });
+
+  test("is null when nothing usable is left", () => {
+    expect(noteNameFromText("   ")).toBeNull();
+    expect(noteNameFromText("...")).toBeNull();
+    expect(noteNameFromText("")).toBeNull();
+  });
+
+  test("limits the length", () => {
+    expect(noteNameFromText("x".repeat(500))?.length).toBe(100);
   });
 });

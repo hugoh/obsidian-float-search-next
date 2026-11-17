@@ -86,6 +86,13 @@ describe("sanitizeSettings", () => {
     expect(DEFAULT_SETTINGS.savedSearches).toEqual([]);
   });
 
+  test("never restores a saved query, whatever data.json holds", () => {
+    expect(
+      sanitizeSettings({ searchViewState: { query: "secret" } }).searchViewState
+        .query,
+    ).toBe("");
+  });
+
   test("merges the saved search view state with its defaults", () => {
     const settings = sanitizeSettings({
       searchViewState: { collapseAll: true, sortOrder: "nonsense", query: 5 },

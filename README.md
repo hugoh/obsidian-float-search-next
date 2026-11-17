@@ -84,8 +84,9 @@ Everything below is in addition to the usage described above.
 ### Filters
 
 - Regular expressions are checked before they run: patterns that can backtrack exponentially (for example `^(a+)+$`) are refused with a notice rather than freezing Obsidian. Some pathological patterns, such as overlapping alternations like `(a|aa)+`, cannot be detected, so avoid pasting untrusted regexes.
+- Filter settings persist across sessions, so a marker ("N filters on", with Reset) shows whenever one is hiding results.
 - Filter bar on both the global search and quick search: include Bases / Canvas, starred notes only, match case, and regular expressions.
-- **Full Obsidian query syntax** in quick search: `tag:`, `path:`, `folder:`, `file:`, properties (`[key::value]`), content operators (`line:`, `block:`, `section:`, `content:`, `task:`), `-` negation, `"quoted phrases"` and `OR`. Tag matching handles nested tags and tags stored in any frontmatter property.
+- **Full Obsidian query syntax** in quick search: `tag:`, `path:`, `folder:`, `file:`, properties (`[key::value]`), content operators (`content:`, `task:`, and `line:` / `block:` / `section:`, which need every term in the same line, block or section: `block:(foo bar)`), `-` negation, `"quoted phrases"` and `OR`. Tag matching handles nested tags and tags stored in any frontmatter property.
 
 ### Hide from results (exclusions)
 
