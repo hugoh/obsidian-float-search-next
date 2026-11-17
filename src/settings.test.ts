@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_SETTINGS, newSavedSearchId, parseViewType, sanitizeSettings } from "./settings";
+import {
+  DEFAULT_SETTINGS,
+  newSavedSearchId,
+  parseViewType,
+  sanitizeSettings,
+} from "./settings";
 
 describe("sanitizeSettings", () => {
-  test.each([[null], [undefined], [42], ["text"], [[]]])("falls back to the defaults for %p", (raw) => {
-    expect(sanitizeSettings(raw)).toEqual(DEFAULT_SETTINGS);
-  });
+  test.each([[null], [undefined], [42], ["text"], [[]]])(
+    "falls back to the defaults for %p",
+    (raw) => {
+      expect(sanitizeSettings(raw)).toEqual(DEFAULT_SETTINGS);
+    },
+  );
 
   test("keeps valid values", () => {
     const settings = sanitizeSettings({
@@ -37,18 +45,33 @@ describe("sanitizeSettings", () => {
     expect(settings.showFilePath).toBe(DEFAULT_SETTINGS.showFilePath);
     expect(settings.defaultViewType).toBe(DEFAULT_SETTINGS.defaultViewType);
     expect(settings.cmdkTriggerKey).toBe(DEFAULT_SETTINGS.cmdkTriggerKey);
-    expect(settings.cmdkDoubleTapInterval).toBe(DEFAULT_SETTINGS.cmdkDoubleTapInterval);
+    expect(settings.cmdkDoubleTapInterval).toBe(
+      DEFAULT_SETTINGS.cmdkDoubleTapInterval,
+    );
     expect(settings.excludeFolders).toEqual([]);
     expect(settings.cmdkQuickCreateFolder).toBe("");
   });
 
+  test("previews quick-search results automatically by default, and honours the choice", () => {
+    expect(DEFAULT_SETTINGS.cmdkAutoPreview).toBe(true);
+    expect(sanitizeSettings({ cmdkAutoPreview: false }).cmdkAutoPreview).toBe(false);
+    expect(sanitizeSettings({ cmdkAutoPreview: "no" }).cmdkAutoPreview).toBe(true);
+  });
+
   test("clamps the double-tap interval to the range the slider allows", () => {
-    expect(sanitizeSettings({ cmdkDoubleTapInterval: 5 }).cmdkDoubleTapInterval).toBe(150);
-    expect(sanitizeSettings({ cmdkDoubleTapInterval: 99999 }).cmdkDoubleTapInterval).toBe(600);
+    expect(
+      sanitizeSettings({ cmdkDoubleTapInterval: 5 }).cmdkDoubleTapInterval,
+    ).toBe(150);
+    expect(
+      sanitizeSettings({ cmdkDoubleTapInterval: 99999 }).cmdkDoubleTapInterval,
+    ).toBe(600);
   });
 
   test("keeps only string entries in the exclusion lists", () => {
-    expect(sanitizeSettings({ excludeFiles: ["a.md", 3, null, "b.md"] }).excludeFiles).toEqual(["a.md", "b.md"]);
+    expect(
+      sanitizeSettings({ excludeFiles: ["a.md", 3, null, "b.md"] })
+        .excludeFiles,
+    ).toEqual(["a.md", "b.md"]);
   });
 
   test("never shares the default arrays", () => {
@@ -60,9 +83,13 @@ describe("sanitizeSettings", () => {
   });
 
   test("merges the saved search view state with its defaults", () => {
-    const settings = sanitizeSettings({ searchViewState: { collapseAll: true, sortOrder: "nonsense", query: 5 } });
+    const settings = sanitizeSettings({
+      searchViewState: { collapseAll: true, sortOrder: "nonsense", query: 5 },
+    });
     expect(settings.searchViewState.collapseAll).toBe(true);
-    expect(settings.searchViewState.sortOrder).toBe(DEFAULT_SETTINGS.searchViewState.sortOrder);
+    expect(settings.searchViewState.sortOrder).toBe(
+      DEFAULT_SETTINGS.searchViewState.sortOrder,
+    );
     expect(settings.searchViewState.query).toBe("");
   });
 });
@@ -70,7 +97,13 @@ describe("sanitizeSettings", () => {
 describe("saved searches", () => {
   test("drops malformed entries", () => {
     const settings = sanitizeSettings({
-      savedSearches: [{ name: "ok", query: "tag:a" }, { name: "", query: "x" }, { name: "n" }, null, "str"],
+      savedSearches: [
+        { name: "ok", query: "tag:a" },
+        { name: "", query: "x" },
+        { name: "n" },
+        null,
+        "str",
+      ],
     });
     expect(settings.savedSearches.map((s) => s.name)).toEqual(["ok"]);
   });
@@ -83,7 +116,9 @@ describe("saved searches", () => {
       ],
     });
     const ids = settings.savedSearches.map((s) => s.id);
-    expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+    expect(ids.every((id) => typeof id === "string" && id.length > 0)).toBe(
+      true,
+    );
     expect(new Set(ids).size).toBe(2);
   });
 
@@ -102,7 +137,11 @@ describe("saved searches", () => {
   });
 
   test("names in any script are kept intact", () => {
-    expect(sanitizeSettings({ savedSearches: [{ name: "项目笔记", query: "tag:项目" }] }).savedSearches[0]?.name).toBe("项目笔记");
+    expect(
+      sanitizeSettings({
+        savedSearches: [{ name: "项目笔记", query: "tag:项目" }],
+      }).savedSearches[0]?.name,
+    ).toBe("项目笔记");
   });
 
   test("generated ids differ", () => {
@@ -111,11 +150,17 @@ describe("saved searches", () => {
 });
 
 describe("parseViewType", () => {
-  test.each(["modal", "sidebar", "split", "tab", "window"])("accepts %s", (type) => {
-    expect(parseViewType(type)).toBe(type);
-  });
+  test.each(["modal", "sidebar", "split", "tab", "window"])(
+    "accepts %s",
+    (type) => {
+      expect(parseViewType(type)).toBe(type);
+    },
+  );
 
-  test.each(["", "popup", "TAB", undefined, null, 3, "tab "])("rejects %p", (type) => {
-    expect(parseViewType(type)).toBeUndefined();
-  });
+  test.each(["", "popup", "TAB", undefined, null, 3, "tab "])(
+    "rejects %p",
+    (type) => {
+      expect(parseViewType(type)).toBeUndefined();
+    },
+  );
 });

@@ -5,7 +5,7 @@ export const MAX_SEARCHED_TEXT = 200_000;
 
 /** Escapes metacharacters, the `/` delimiter, and spaces (so a query tokenizer cannot split the term). */
 export function escapeRegex(text: string): string {
-	return text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/ /g, "\\x20");
+  return text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/ /g, "\\x20");
 }
 
 /**
@@ -15,15 +15,17 @@ export function escapeRegex(text: string): string {
  * such as `(a|aa)+` are not detected; the length limits bound the rest.
  */
 export function compileSafeRegex(source: string, flags: string): RegExp | null {
-	if (source.length > MAX_REGEX_SOURCE) return null;
-	try {
-		const re = new RegExp(source, flags);
-		return safeRegex(re) ? re : null;
-	} catch {
-		return null;
-	}
+  if (source.length > MAX_REGEX_SOURCE) return null;
+  try {
+    const re = new RegExp(source, flags);
+    return safeRegex(re) ? re : null;
+  } catch {
+    return null;
+  }
 }
 
 export function truncateForRegex(text: string): string {
-	return text.length > MAX_SEARCHED_TEXT ? text.slice(0, MAX_SEARCHED_TEXT) : text;
+  return text.length > MAX_SEARCHED_TEXT
+    ? text.slice(0, MAX_SEARCHED_TEXT)
+    : text;
 }

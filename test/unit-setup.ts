@@ -19,15 +19,23 @@ mock.module("obsidian", () => ({
   }) => {
     const fromBody = (cache.tags ?? []).map((entry) => entry.tag);
     const raw = cache.frontmatter?.tags;
-    const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[\s,]+/) : [];
+    const list = Array.isArray(raw)
+      ? raw
+      : typeof raw === "string"
+        ? raw.split(/[\s,]+/)
+        : [];
     const fromFrontmatter = list
       .filter((tag): tag is string => typeof tag === "string" && tag.length > 0)
       .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`));
     return [...fromBody, ...fromFrontmatter];
   },
   normalizePath: (path: string) =>
-    path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, "") || "/",
-  getLanguage: () => (globalThis as { testLanguage?: string }).testLanguage ?? "en",
+    path
+      .replace(/\\/g, "/")
+      .replace(/\/+/g, "/")
+      .replace(/^\/|\/$/g, "") || "/",
+  getLanguage: () =>
+    (globalThis as { testLanguage?: string }).testLanguage ?? "en",
   requireApiVersion: () => true,
   debounce: (fn: () => void) => fn,
 }));

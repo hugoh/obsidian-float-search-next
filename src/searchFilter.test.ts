@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import type { App, CachedMetadata, TFile } from "obsidian";
-import { SearchFilter, freeText, isPlainText, parseQuery, requiresContent } from "./searchFilter";
+import {
+  freeText,
+  isPlainText,
+  parseQuery,
+  requiresContent,
+  SearchFilter,
+} from "./searchFilter";
 
 function file(path: string): TFile {
   const name = path.split("/").pop() ?? path;
-  const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  const parentPath = path.includes("/")
+    ? path.slice(0, path.lastIndexOf("/"))
+    : "";
   return {
     path,
     name,
@@ -13,7 +21,9 @@ function file(path: string): TFile {
   } as unknown as TFile;
 }
 
-const filter = new SearchFilter({ metadataCache: { getFileCache: () => null } } as unknown as App);
+const filter = new SearchFilter({
+  metadataCache: { getFileCache: () => null },
+} as unknown as App);
 const tagged = (...tags: string[]): CachedMetadata =>
   ({ tags: tags.map((tag) => ({ tag })) }) as unknown as CachedMetadata;
 
@@ -28,8 +38,13 @@ describe("parseQuery", () => {
   });
 
   test("normalises tags to start with a hash", () => {
-    expect(parseQuery("tag:project").groups[0]?.[0]).toMatchObject({ kind: "tag", tag: "#project" });
-    expect(parseQuery("tag:#project").groups[0]?.[0]).toMatchObject({ tag: "#project" });
+    expect(parseQuery("tag:project").groups[0]?.[0]).toMatchObject({
+      kind: "tag",
+      tag: "#project",
+    });
+    expect(parseQuery("tag:#project").groups[0]?.[0]).toMatchObject({
+      tag: "#project",
+    });
   });
 
   test("a leading dash negates a clause", () => {
@@ -52,15 +67,25 @@ describe("parseQuery", () => {
     ["property:status:done", "status", "done"],
     ["status::done", "status", "done"],
   ])("understands the property form %s", (raw, key, value) => {
-    expect(parseQuery(raw).groups[0]?.[0]).toMatchObject({ kind: "property", key, value });
+    expect(parseQuery(raw).groups[0]?.[0]).toMatchObject({
+      kind: "property",
+      key,
+      value,
+    });
   });
 
   test("a property without a value only tests existence", () => {
-    expect(parseQuery("[status::]").groups[0]?.[0]).toMatchObject({ key: "status", value: undefined });
+    expect(parseQuery("[status::]").groups[0]?.[0]).toMatchObject({
+      key: "status",
+      value: undefined,
+    });
   });
 
   test("operator names are case-insensitive and aliased", () => {
-    expect(parseQuery("FILE:notes").groups[0]?.[0]).toMatchObject({ kind: "name", value: "notes" });
+    expect(parseQuery("FILE:notes").groups[0]?.[0]).toMatchObject({
+      kind: "name",
+      value: "notes",
+    });
     expect(parseQuery("tags:x").groups[0]?.[0]).toMatchObject({ kind: "tag" });
   });
 
@@ -114,14 +139,20 @@ describe("SearchFilter.matchMetadata", () => {
   });
 
   test("tags in the tags property count, with or without a hash", () => {
-    const listed = { frontmatter: { tags: ["work", "#project"] } } as unknown as CachedMetadata;
+    const listed = {
+      frontmatter: { tags: ["work", "#project"] },
+    } as unknown as CachedMetadata;
     expect(match("tag:project", "a.md", listed)).toBe(true);
-    const text = { frontmatter: { tags: "work, project" } } as unknown as CachedMetadata;
+    const text = {
+      frontmatter: { tags: "work, project" },
+    } as unknown as CachedMetadata;
     expect(match("tag:project", "a.md", text)).toBe(true);
   });
 
   test("other properties are not tags", () => {
-    const cache = { frontmatter: { category: "project", topics: ["project"] } } as unknown as CachedMetadata;
+    const cache = {
+      frontmatter: { category: "project", topics: ["project"] },
+    } as unknown as CachedMetadata;
     expect(match("tag:project", "a.md", cache)).toBe(false);
   });
 
@@ -134,7 +165,9 @@ describe("SearchFilter.matchMetadata", () => {
   });
 
   test("properties match by existence and by substring value", () => {
-    const cache = { frontmatter: { status: "In Progress" } } as unknown as CachedMetadata;
+    const cache = {
+      frontmatter: { status: "In Progress" },
+    } as unknown as CachedMetadata;
     expect(match("[status::]", "a.md", cache)).toBe(true);
     expect(match("[status::progress]", "a.md", cache)).toBe(true);
     expect(match("[status::done]", "a.md", cache)).toBe(false);
@@ -144,7 +177,9 @@ describe("SearchFilter.matchMetadata", () => {
   test("AND within a group, OR across groups", () => {
     expect(match("tag:a path:Notes", "Notes/x.md", tagged("#a"))).toBe(true);
     expect(match("tag:a path:Work", "Notes/x.md", tagged("#a"))).toBe(false);
-    expect(match("tag:a path:Work OR path:Notes", "Notes/x.md", tagged("#a"))).toBe(true);
+    expect(
+      match("tag:a path:Work OR path:Notes", "Notes/x.md", tagged("#a")),
+    ).toBe(true);
   });
 
   test("content clauses and free text never pre-filter a file out", () => {
@@ -179,7 +214,9 @@ describe("SearchFilter.matchContent", () => {
   });
 
   test("section matches headings from the metadata cache", () => {
-    const cache = { headings: [{ heading: "Meeting Notes" }] } as unknown as CachedMetadata;
+    const cache = {
+      headings: [{ heading: "Meeting Notes" }],
+    } as unknown as CachedMetadata;
     expect(match("section:meeting", "x", cache)).toBe(true);
     expect(match("section:other", "x", cache)).toBe(false);
   });

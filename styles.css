@@ -568,3 +568,8 @@ body:not(.show-file-path) .search-result-file-title .search-result-file-path {
 	color: var(--text-on-accent);
 	border-color: var(--interactive-accent);
 }
+
+.float-search-cmdk-notice {
+  color: var(--text-warning, var(--text-muted));
+  font-style: italic;
+}

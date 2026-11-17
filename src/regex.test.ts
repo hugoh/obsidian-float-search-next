@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_REGEX_SOURCE, MAX_SEARCHED_TEXT, compileSafeRegex, escapeRegex, truncateForRegex } from "./regex";
+import {
+  compileSafeRegex,
+  escapeRegex,
+  MAX_REGEX_SOURCE,
+  MAX_SEARCHED_TEXT,
+  truncateForRegex,
+} from "./regex";
 
 describe("escapeRegex", () => {
   test("escapes every metacharacter and the slash delimiter", () => {
@@ -29,9 +35,12 @@ describe("compileSafeRegex", () => {
     expect(compileSafeRegex("(", "i")).toBeNull();
   });
 
-  test.each(["^(a+)+$", "(a*)*b", "(x+x+)+y"])("rejects nested quantifiers: %s", (pattern) => {
-    expect(compileSafeRegex(pattern, "i")).toBeNull();
-  });
+  test.each(["^(a+)+$", "(a*)*b", "(x+x+)+y"])(
+    "rejects nested quantifiers: %s",
+    (pattern) => {
+      expect(compileSafeRegex(pattern, "i")).toBeNull();
+    },
+  );
 
   test("rejects patterns longer than the limit", () => {
     expect(compileSafeRegex("a".repeat(MAX_REGEX_SOURCE + 1), "i")).toBeNull();
@@ -39,7 +48,13 @@ describe("compileSafeRegex", () => {
   });
 
   test("accepts the common safe shapes", () => {
-    for (const pattern of ["^\\d+$", "foo|bar", "(foo|bar)+", "a{1,5}b", "[a-z]+@[a-z]+\\.com"]) {
+    for (const pattern of [
+      "^\\d+$",
+      "foo|bar",
+      "(foo|bar)+",
+      "a{1,5}b",
+      "[a-z]+@[a-z]+\\.com",
+    ]) {
       expect(compileSafeRegex(pattern, "i")).not.toBeNull();
     }
   });
@@ -51,6 +66,8 @@ describe("truncateForRegex", () => {
   });
 
   test("bounds the text a regex will see", () => {
-    expect(truncateForRegex("x".repeat(MAX_SEARCHED_TEXT + 10)).length).toBe(MAX_SEARCHED_TEXT);
+    expect(truncateForRegex("x".repeat(MAX_SEARCHED_TEXT + 10)).length).toBe(
+      MAX_SEARCHED_TEXT,
+    );
   });
 });

@@ -1,23 +1,14 @@
 {
-	"compilerOptions": {
-		"module": "ESNext",
-		"target": "ES2021",
-		"lib": [
-			"ES2021",
-			"DOM"
-		],
-		"moduleResolution": "bundler",
-		"strict": false,
-		"skipLibCheck": true,
-		"noEmit": true,
-		"types": [
-			"bun"
-		],
-		"baseUrl": "."
-	},
-	"include": [
-		"src/**/*.test.ts",
-		"src/types/*.d.ts",
-		"test/unit-setup.ts"
-	]
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM"],
+    "moduleResolution": "bundler",
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["bun"],
+    "baseUrl": "."
+  },
+  "include": ["src/**/*.test.ts", "src/types/*.d.ts", "test/unit-setup.ts"]
 }

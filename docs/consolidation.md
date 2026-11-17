@@ -77,6 +77,9 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 18 | Double-tap shortcut did nothing in popout windows | Listeners were attached to the main `document` only | Attached per window (`window-open`) | e2e (main window) |
 | 19 | `innerHTML` used for the filter icons | Inline SVG strings | Registered with `addIcon` and rendered with `setIcon` | e2e |
 | 20 | Content cache could grow without a byte limit and duplicated its LRU logic in the modal | Count-only cap | `ContentCache` (entries and bytes, LRU, cleared on unload), read through `plugin.readContent` | `contentCache.test.ts` |
+| 21 | Quick-search previews rendered notes automatically, which runs other plugins' code blocks (Dataview, Templater) | By design, undocumented | New setting *Preview results automatically* (default on, documented). Off means preview on `Tab` only (`Shift+Tab` closes). | `settings.test.ts`, e2e |
+| 22 | Exclusion setting suggested protection (placeholder `secrets.md`) it does not provide | Wording | Renamed to "Hide from results", examples changed, description and README say it is a convenience filter, not a privacy control | docs |
+| 23 | A refused (unsafe or invalid) regex looked like "no results" | Silent fallback | Quick search shows a notice row explaining why | `cmdkResult.test.ts`, e2e |
 
 ## Refactors (behaviour unchanged)
 
@@ -107,10 +110,16 @@ Each entry: what was wrong, why, the fix, and what guards it now.
   a heading text respectively; Obsidian's native `block:` / `section:` mean "terms
   in the same block / section". The native search view is unaffected.
 
+## Accepted risks
+
+- Regexes with overlapping alternations (for example `(a|aa)+`) are not detected by
+  `safe-regex2` and can still hang the UI. Only a worker with a timeout would fix this
+  completely; judged not worth the complexity (the user types the pattern, the classic
+  class is blocked, and the native search has the same weakness). Documented in the README.
+
 ## Open items
 
 Tracked from the code review; move a row to the fixes table when done.
 
-- Preview auto-renders notes (other plugins' code blocks run); decision pending.
 - The two modals still have separate preview rendering (they differ in layout and focus handling).
 - Lint backlog (`eslint-plugin-obsidianmd`).

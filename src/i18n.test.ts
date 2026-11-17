@@ -43,9 +43,13 @@ describe("Chinese locale", () => {
 
   test("no message is left untranslated", () => {
     const english = strings() as unknown as Record<string, unknown>;
-    const chinese = withLanguage("zh", () => strings() as unknown as Record<string, unknown>);
+    const chinese = withLanguage(
+      "zh",
+      () => strings() as unknown as Record<string, unknown>,
+    );
     const untranslated = Object.keys(english).filter(
-      (key) => typeof english[key] === "string" && english[key] === chinese[key],
+      (key) =>
+        typeof english[key] === "string" && english[key] === chinese[key],
     );
     // Brand and key names (for example "Shift") legitimately match.
     expect(untranslated.length).toBeLessThan(10);

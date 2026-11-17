@@ -7,7 +7,10 @@ import {
   withExclusion,
 } from "./exclusions";
 
-const rules = { excludeFolders: ["Templates/", "/Archive"], excludeFiles: ["secrets.md"] };
+const rules = {
+  excludeFolders: ["Templates/", "/Archive"],
+  excludeFiles: ["secrets.md"],
+};
 const none = { excludeFolders: [], excludeFiles: [] };
 
 describe("normalizePath", () => {
@@ -33,11 +36,16 @@ describe("buildExcludeClause", () => {
   });
 
   test("ignores blank entries", () => {
-    expect(buildExcludeClause({ excludeFolders: ["  ", "/"], excludeFiles: [""] })).toBe("");
+    expect(
+      buildExcludeClause({ excludeFolders: ["  ", "/"], excludeFiles: [""] }),
+    ).toBe("");
   });
 
   test("cannot be broken out of by quotes or regex characters in a name", () => {
-    const clause = buildExcludeClause({ excludeFolders: ['a" -path:"b', "c(d)+"], excludeFiles: [] });
+    const clause = buildExcludeClause({
+      excludeFolders: ['a" -path:"b', "c(d)+"],
+      excludeFiles: [],
+    });
     expect(clause.split(" ")).toHaveLength(2);
     expect(clause).toContain("c\\(d\\)\\+");
   });
@@ -49,13 +57,17 @@ describe("withExclusion", () => {
   });
 
   test("appends the clause after the query", () => {
-    expect(withExclusion(rules, "hello")).toBe(`hello ${buildExcludeClause(rules)}`);
+    expect(withExclusion(rules, "hello")).toBe(
+      `hello ${buildExcludeClause(rules)}`,
+    );
   });
 
   test("keeps a leading space for an empty query so text typed before it stays separate", () => {
     const withClause = withExclusion(rules, "");
     expect(withClause).toBe(` ${buildExcludeClause(rules)}`);
-    expect(`pineapple${withClause}`).toBe(`pineapple ${buildExcludeClause(rules)}`);
+    expect(`pineapple${withClause}`).toBe(
+      `pineapple ${buildExcludeClause(rules)}`,
+    );
   });
 
   test("an empty query round-trips to empty", () => {
@@ -72,7 +84,9 @@ describe("withExclusion", () => {
 
 describe("stripExclusion", () => {
   test("round-trips with withExclusion", () => {
-    expect(stripExclusion(rules, withExclusion(rules, "hello world"))).toBe("hello world");
+    expect(stripExclusion(rules, withExclusion(rules, "hello world"))).toBe(
+      "hello world",
+    );
   });
 
   test("collapses whitespace left behind", () => {

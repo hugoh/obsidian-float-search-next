@@ -22,16 +22,35 @@ function host(overrides: Partial<FilterHost["settings"]> = {}): FilterHost {
     app: {} as FilterHost["app"],
   };
 }
-const asFile = (path: string) => ({ path, extension: path.split(".").pop() }) as TFile;
+const asFile = (path: string) =>
+  ({ path, extension: path.split(".").pop() }) as TFile;
 
 describe("isFileAllowed", () => {
   test("allows notes regardless of the type toggles", () => {
-    expect(isFileAllowed(host({ filterIncludeBases: false, filterIncludeCanvas: false }), asFile("a.md"), null)).toBe(true);
+    expect(
+      isFileAllowed(
+        host({ filterIncludeBases: false, filterIncludeCanvas: false }),
+        asFile("a.md"),
+        null,
+      ),
+    ).toBe(true);
   });
 
   test("honours the base and canvas toggles", () => {
-    expect(isFileAllowed(host({ filterIncludeBases: false }), asFile("a.base"), null)).toBe(false);
-    expect(isFileAllowed(host({ filterIncludeCanvas: false }), asFile("a.canvas"), null)).toBe(false);
+    expect(
+      isFileAllowed(
+        host({ filterIncludeBases: false }),
+        asFile("a.base"),
+        null,
+      ),
+    ).toBe(false);
+    expect(
+      isFileAllowed(
+        host({ filterIncludeCanvas: false }),
+        asFile("a.canvas"),
+        null,
+      ),
+    ).toBe(false);
     expect(isFileAllowed(host(), asFile("a.canvas"), null)).toBe(true);
   });
 
@@ -48,7 +67,9 @@ describe("compileQueryRegex", () => {
   });
 
   test("is null for a pattern with nested quantifiers", () => {
-    expect(compileQueryRegex(host({ filterUseRegex: true }), "^(a+)+$")).toBeNull();
+    expect(
+      compileQueryRegex(host({ filterUseRegex: true }), "^(a+)+$"),
+    ).toBeNull();
   });
 
   test("is null for an invalid pattern", () => {
@@ -56,8 +77,15 @@ describe("compileQueryRegex", () => {
   });
 
   test("ignores case unless match-case is on", () => {
-    expect(compileQueryRegex(host({ filterUseRegex: true }), "a")?.flags).toBe("im");
-    expect(compileQueryRegex(host({ filterUseRegex: true, filterMatchCase: true }), "a")?.flags).toBe("m");
+    expect(compileQueryRegex(host({ filterUseRegex: true }), "a")?.flags).toBe(
+      "im",
+    );
+    expect(
+      compileQueryRegex(
+        host({ filterUseRegex: true, filterMatchCase: true }),
+        "a",
+      )?.flags,
+    ).toBe("m");
   });
 });
 
@@ -67,15 +95,21 @@ describe("buildNativeRegexQuery", () => {
   });
 
   test("wraps the pattern for both content and path search", () => {
-    expect(buildNativeRegexQuery(host({ filterUseRegex: true }), "a+")).toBe("/a+/ OR path:/a+/");
+    expect(buildNativeRegexQuery(host({ filterUseRegex: true }), "a+")).toBe(
+      "/a+/ OR path:/a+/",
+    );
   });
 
   test("escapes slashes the native tokenizer would treat as delimiters", () => {
-    expect(buildNativeRegexQuery(host({ filterUseRegex: true }), "a/b")).toBe("/a\\/b/ OR path:/a\\/b/");
+    expect(buildNativeRegexQuery(host({ filterUseRegex: true }), "a/b")).toBe(
+      "/a\\/b/ OR path:/a\\/b/",
+    );
   });
 
   test("an invalid pattern matches nothing", () => {
-    expect(buildNativeRegexQuery(host({ filterUseRegex: true }), "(")).toBe("/(?!)/ OR path:/(?!)/");
+    expect(buildNativeRegexQuery(host({ filterUseRegex: true }), "(")).toBe(
+      "/(?!)/ OR path:/(?!)/",
+    );
   });
 });
 
@@ -90,22 +124,36 @@ describe("matchAsSearchResult", () => {
 
   test("match-case mode is an exact, case-sensitive substring", () => {
     const h = host({ filterMatchCase: true });
-    expect(matchAsSearchResult(h, "Hello World", "World")?.matches).toEqual([[6, 11]]);
+    expect(matchAsSearchResult(h, "Hello World", "World")?.matches).toEqual([
+      [6, 11],
+    ]);
     expect(matchAsSearchResult(h, "Hello World", "world")).toBeNull();
   });
 
   test("regex mode returns the first non-empty match range", () => {
     const h = host({ filterUseRegex: true });
-    expect(matchAsSearchResult(h, "abc123def", "\\d+")?.matches).toEqual([[3, 6]]);
+    expect(matchAsSearchResult(h, "abc123def", "\\d+")?.matches).toEqual([
+      [3, 6],
+    ]);
   });
 
   test("regex mode skips zero-width matches", () => {
-    expect(matchAsSearchResult(host({ filterUseRegex: true }), "abc", "x*")).toBeNull();
+    expect(
+      matchAsSearchResult(host({ filterUseRegex: true }), "abc", "x*"),
+    ).toBeNull();
   });
 
   test("regex mode respects case and multiline anchors", () => {
-    expect(matchAsSearchResult(host({ filterUseRegex: true }), "one\nTWO", "^two$")).not.toBeNull();
-    expect(matchAsSearchResult(host({ filterUseRegex: true, filterMatchCase: true }), "one\nTWO", "^two$")).toBeNull();
+    expect(
+      matchAsSearchResult(host({ filterUseRegex: true }), "one\nTWO", "^two$"),
+    ).not.toBeNull();
+    expect(
+      matchAsSearchResult(
+        host({ filterUseRegex: true, filterMatchCase: true }),
+        "one\nTWO",
+        "^two$",
+      ),
+    ).toBeNull();
   });
 
   test("a pattern that can backtrack exponentially matches nothing, instantly", () => {
@@ -116,6 +164,8 @@ describe("matchAsSearchResult", () => {
   });
 
   test("an invalid regex matches nothing", () => {
-    expect(matchAsSearchResult(host({ filterUseRegex: true }), "abc", "(")).toBeNull();
+    expect(
+      matchAsSearchResult(host({ filterUseRegex: true }), "abc", "("),
+    ).toBeNull();
   });
 });

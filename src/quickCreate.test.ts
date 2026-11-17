@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { safeFileName, uniqueNotePath } from "./quickCreate";
 
-const taken = (...paths: string[]) => (path: string) => paths.includes(path);
+const taken =
+  (...paths: string[]) =>
+  (path: string) =>
+    paths.includes(path);
 
 describe("uniqueNotePath", () => {
   test("puts the note in the vault root for an empty folder", () => {
@@ -15,8 +18,16 @@ describe("uniqueNotePath", () => {
   });
 
   test("adds a counter when the name is taken", () => {
-    expect(uniqueNotePath("Inbox", "t", taken("Inbox/t.md"))).toBe("Inbox/t 1.md");
-    expect(uniqueNotePath("Inbox", "t", taken("Inbox/t.md", "Inbox/t 1.md", "Inbox/t 2.md"))).toBe("Inbox/t 3.md");
+    expect(uniqueNotePath("Inbox", "t", taken("Inbox/t.md"))).toBe(
+      "Inbox/t 1.md",
+    );
+    expect(
+      uniqueNotePath(
+        "Inbox",
+        "t",
+        taken("Inbox/t.md", "Inbox/t 1.md", "Inbox/t 2.md"),
+      ),
+    ).toBe("Inbox/t 3.md");
   });
 });
 
