@@ -72,6 +72,8 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 13 | Backlink command broke for file names with regex characters | Name inserted into a regex unescaped | `escapeRegex` | `regex.test.ts` |
 | 14 | `obsidian://fs` accepted any `viewType` | Cast without validation | Whitelisted via `parseViewType`, falling back to the modal | `settings.test.ts`, e2e |
 | 15 | Module-level `activePlugin` outlived the plugin | Global used by a free function | Now a plugin method; seven copies of "open modal or leaf" became `openSearch()` | e2e |
+| 16 | `tag:project` matched notes whose *other* properties contained "project" | Hand-rolled tag search treated any frontmatter string as a tag | Uses Obsidian's `getAllTags` (inline tags and the `tags` property), case-insensitive, nested-aware | `searchFilter.test.ts`, e2e |
+| 17 | Quick-create threw on a same-name note and its title format only knew 7 tokens | `vault.create` without a collision check; hand-rolled `formatTimestamp` | `uniqueNotePath` appends ` 1`, ` 2`...; titles use Obsidian's `moment` (literal text in `[brackets]`) and are made filename-safe | `quickCreate.test.ts`, e2e |
 
 ## Test coverage added
 
@@ -80,13 +82,17 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 - e2e (`wdio-obsidian-service`, real Obsidian, `test/specs/`): quick search,
   exclusions, saved searches, native search modal.
 
+## Behaviour notes
+
+- `block:` and `section:` in the quick-search query engine match a block id and
+  a heading text respectively; Obsidian's native `block:` / `section:` mean "terms
+  in the same block / section". The native search view is unaffected.
+
 ## Open items
 
 Tracked from the code review; move a row to the fixes table when done.
 
-- Tag matching treats any frontmatter value as a tag.
 - Double-tap shortcut and timers only work in the main window, not popouts.
-- Quick-create has no collision handling.
 - `innerHTML` for the filter icons.
 - Preview auto-renders notes (other plugins' code blocks run); decision pending.
 - Consolidation: two preview implementations, two i18n systems, 3,600-line main

@@ -113,9 +113,24 @@ describe("SearchFilter.matchMetadata", () => {
     expect(match("tag:project", "a.md", tagged("#projects"))).toBe(false);
   });
 
-  test("tags are found in any frontmatter property", () => {
-    const cache = { frontmatter: { topics: ["work", "#project"] } } as unknown as CachedMetadata;
-    expect(match("tag:project", "a.md", cache)).toBe(true);
+  test("tags in the tags property count, with or without a hash", () => {
+    const listed = { frontmatter: { tags: ["work", "#project"] } } as unknown as CachedMetadata;
+    expect(match("tag:project", "a.md", listed)).toBe(true);
+    const text = { frontmatter: { tags: "work, project" } } as unknown as CachedMetadata;
+    expect(match("tag:project", "a.md", text)).toBe(true);
+  });
+
+  test("other properties are not tags", () => {
+    const cache = { frontmatter: { category: "project", topics: ["project"] } } as unknown as CachedMetadata;
+    expect(match("tag:project", "a.md", cache)).toBe(false);
+  });
+
+  test("tags are case-insensitive", () => {
+    expect(match("tag:Project", "a.md", tagged("#project"))).toBe(true);
+  });
+
+  test("a note without metadata has no tags", () => {
+    expect(match("tag:project", "a.md")).toBe(false);
   });
 
   test("properties match by existence and by substring value", () => {

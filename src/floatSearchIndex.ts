@@ -4,6 +4,7 @@ import {
 	Editor,
 	ExtraButtonComponent,
 	Keymap,
+	moment,
 	Menu,
 	MenuItem,
 	Modal,
@@ -33,6 +34,7 @@ import { EmbeddedView, isEmebeddedLeaf, spawnLeafView } from "./leafView";
 import { SearchFilter, parseQuery, requiresContent, type Query, type Clause } from "./searchFilter";
 import {
 	createExclusionMatcher,
+	normalizePath,
 	stripExclusion,
 	withExclusion,
 } from "./exclusions";
@@ -47,6 +49,7 @@ import {
 	type SearchType,
 	type SortOrder,
 } from "./settings";
+import { safeFileName, uniqueNotePath } from "./quickCreate";
 import { escapeRegex } from "./regex";
 import { around } from "monkey-around";
 import { debounce } from "obsidian";
@@ -3267,59 +3270,25 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		evt: MouseEvent | KeyboardEvent
 	) {
 		const settings = this.plugin.settings;
-		const fmt = settings.cmdkQuickCreateTitleFormat || "YYYYMMDDHHmmss";
-		const title = this.formatTimestamp(new Date(), fmt);
-
-		// Resolve target folder
-		let folderPath = settings.cmdkQuickCreateFolder.trim();
-		if (!folderPath || folderPath === "/") {
-			folderPath = "";
+		const title = safeFileName(
+			moment().format(settings.cmdkQuickCreateTitleFormat || "YYYYMMDDHHmmss")
+		);
+		const folder = normalizePath(settings.cmdkQuickCreateFolder);
+		if (folder && !this.app.vault.getFolderByPath(folder)) {
+			await this.app.vault.createFolder(folder);
 		}
-		// Ensure folder exists
-		if (folderPath) {
-			const folder =
-				this.app.vault.getAbstractFileByPath(folderPath);
-			if (!folder) {
-				await this.app.vault.createFolder(folderPath);
-			}
-		}
-
-		const filePath = folderPath
-			? `${folderPath}/${title}.md`
-			: `${title}.md`;
-
-		const file = await this.app.vault.create(filePath, content);
+		const path = uniqueNotePath(
+			folder,
+			title,
+			(candidate) => this.app.vault.getAbstractFileByPath(candidate) !== null
+		);
+		const file = await this.app.vault.create(path, content);
 
 		const leaf = Keymap.isModEvent(evt)
 			? this.app.workspace.getLeaf("tab")
 			: this.app.workspace.getMostRecentLeaf() ??
 				this.app.workspace.getLeaf();
-
-		await leaf.setViewState({
-			type: "markdown",
-			state: { file: file.path },
-			active: true,
-		});
-	}
-
-	private formatTimestamp(date: Date, fmt: string): string {
-		const pad = (n: number, len = 2) =>
-			String(n).padStart(len, "0");
-		const tokens: Record<string, string> = {
-			YYYY: String(date.getFullYear()),
-			YY: String(date.getFullYear()).slice(-2),
-			MM: pad(date.getMonth() + 1),
-			DD: pad(date.getDate()),
-			HH: pad(date.getHours()),
-			mm: pad(date.getMinutes()),
-			ss: pad(date.getSeconds()),
-		};
-		let result = fmt;
-		// Replace longest tokens first to avoid partial matches
-		for (const token of ["YYYY", "YY", "MM", "DD", "HH", "mm", "ss"]) {
-			result = result.split(token).join(tokens[token]);
-		}
-		return result;
+		await leaf.openFile(file, { active: true });
 	}
 
 	// Called by internal Chooser on selection change

@@ -1,4 +1,5 @@
-import { App, TFile, prepareFuzzySearch, CachedMetadata } from "obsidian";
+import { getAllTags, prepareFuzzySearch } from "obsidian";
+import type { App, CachedMetadata, TFile } from "obsidian";
 
 /**
  * SearchFilter — the single source of truth for matching files against
@@ -364,7 +365,7 @@ export class SearchFilter {
 		});
 	}
 
-	/** Tag match with nested-tag support (e.g. #项目 also matches #项目/子). */
+	/** Tag match (case-insensitive, nested-aware: #a also matches #a/b). */
 	fileHasTag(
 		file: TFile,
 		normalizedTag: string,
@@ -372,55 +373,11 @@ export class SearchFilter {
 	): boolean {
 		const cache = precomputed ?? this.app.metadataCache.getFileCache(file);
 		if (!cache) return false;
-		// 1) Inline tags / the standard `tags` frontmatter property, both of
-		// which Obsidian indexes into `cache.tags`.
-		if (
-			cache.tags?.some(
-				(t) =>
-					t.tag === normalizedTag ||
-					t.tag.startsWith(normalizedTag + "/")
-			)
-		)
-			return true;
-		// 2) Tags stored under ANY frontmatter property (custom property
-		// names, YAML lists, or comma/space separated strings). This covers
-		// vaults where every tag lives in properties rather than inline.
-		const fm = cache.frontmatter;
-		if (fm) {
-			const tagBase = normalizedTag.replace(/^#/, "");
-			for (const value of Object.values(fm)) {
-				if (this.valueHasTag(value, tagBase, normalizedTag))
-					return true;
-			}
-		}
-		return false;
-	}
-
-	private valueHasTag(
-		value: unknown,
-		tagBase: string,
-		normalizedTag: string
-	): boolean {
-		if (typeof value === "string") {
-			const tokens = value
-				.split(/[,\n\s]+/)
-				.map((s) => s.trim())
-				.filter(Boolean);
-			return tokens.some((tok) => this.tagEquals(tok, normalizedTag));
-		}
-		if (Array.isArray(value)) {
-			return value.some(
-				(v) =>
-					typeof v === "string" &&
-					this.tagEquals(v.trim(), normalizedTag)
-			);
-		}
-		return false;
-	}
-
-	private tagEquals(tok: string, normalizedTag: string): boolean {
-		const t = tok.startsWith("#") ? tok : "#" + tok;
-		return t === normalizedTag || t.startsWith(normalizedTag + "/");
+		const wanted = normalizedTag.toLowerCase();
+		return (getAllTags(cache) ?? []).some((tag) => {
+			const candidate = tag.toLowerCase();
+			return candidate === wanted || candidate.startsWith(`${wanted}/`);
+		});
 	}
 
 	/** Frontmatter or inline property match. Value is optional (existence). */

@@ -134,7 +134,7 @@ const EN: Strings = {
 	quickCreateFolderPlaceholder: "e.g. Inbox",
 	titleFormat: "Title format",
 	titleFormatDesc:
-		"Timestamp format for the note title. Tokens: YYYY, MM, DD, HH, mm, ss.",
+		"Moment.js format for the note title, e.g. YYYYMMDDHHmmss. Wrap literal text in [brackets].",
 	triggerShift: "Double Shift",
 	triggerControl: "Double Ctrl",
 	triggerAlt: "Double Alt",
@@ -214,7 +214,7 @@ const ZH: Strings = {
 	quickCreateFolderPlaceholder: "例如 Inbox",
 	titleFormat: "标题格式",
 	titleFormatDesc:
-		"笔记标题的时间戳格式。可用标记：YYYY、MM、DD、HH、mm、ss。",
+		"笔记标题的 Moment.js 格式，例如 YYYYMMDDHHmmss。字面文字请用 [方括号] 包裹。",
 	triggerShift: "双击 Shift",
 	triggerControl: "双击 Ctrl",
 	triggerAlt: "双击 Alt",
@@ -322,8 +322,8 @@ const dict: Record<string, { en: string; zh: string }> = {
 	},
 	titleFormat: { en: "Title format", zh: "标题格式" },
 	titleFormatDesc: {
-		en: "Timestamp format for the note title. Tokens: YYYY, MM, DD, HH, mm, ss.",
-		zh: "笔记标题的时间戳格式，占位符：YYYY、MM、DD、HH、mm、ss。",
+		en: "Moment.js format for the note title, e.g. YYYYMMDDHHmmss. Wrap literal text in [brackets].",
+		zh: "笔记标题的 Moment.js 格式，例如 YYYYMMDDHHmmss。字面文字请用 [方括号] 包裹。",
 	},
 	exclusions: { en: "Exclusions", zh: "排除项" },
 	excludeFolders: { en: "Exclude folders", zh: "排除文件夹" },

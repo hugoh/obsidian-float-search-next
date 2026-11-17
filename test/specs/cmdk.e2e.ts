@@ -64,12 +64,51 @@ describe("Quick search (CMDK)", () => {
 		expect(await hasResult("Old")).toBe(false);
 	});
 
+	it("treats only real tags as tags", async () => {
+		const input = await openCmdk();
+		await input.setValue("tag:fruit");
+		await waitForResult("Pineapple");
+		expect(await hasResult("Banana")).toBe(false);
+		await input.setValue("tag:banana");
+		await browser.pause(600);
+		expect(await hasResult("Banana")).toBe(false);
+	});
+
 	it("supports regular expressions when enabled", async () => {
 		await updateSettings({ filterUseRegex: true });
 		const input = await openCmdk();
 		await input.setValue("^Pine.*le$");
 		await waitForResult("Pineapple");
 		expect(await hasResult("Banana")).toBe(false);
+	});
+
+	it("creates quick notes without clobbering an existing one", async () => {
+		await updateSettings({
+			cmdkQuickCreate: true,
+			cmdkQuickCreateFolder: "Created",
+			cmdkQuickCreateTitleFormat: "[qc]-YYYY",
+		});
+		const createNote = async (text: string) => {
+			const input = await openCmdk();
+			await input.setValue(text);
+			const item = browser.$(".float-search-cmdk-create-item");
+			await item.waitForExist();
+			await item.click();
+			await browser.waitUntil(async () => (await activePath())?.startsWith("Created/") ?? false);
+		};
+
+		await createNote("zzz first");
+		const year = new Date().getFullYear();
+		expect(await activePath()).toBe(`Created/qc-${year}.md`);
+		await createNote("zzz second");
+		expect(await activePath()).toBe(`Created/qc-${year} 1.md`);
+
+		const bodies = await browser.executeObsidian(async ({ app }) => {
+			const notes = app.vault.getMarkdownFiles().filter((file) => file.path.startsWith("Created/"));
+			return Promise.all(notes.map((file) => app.vault.read(file)));
+		});
+		expect(bodies.sort()).toEqual(["zzz first", "zzz second"]);
+		await updateSettings({ cmdkQuickCreate: false, cmdkQuickCreateFolder: "" });
 	});
 
 	it("shows quick-create when nothing matches", async () => {
