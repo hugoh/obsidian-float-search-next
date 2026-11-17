@@ -1,6 +1,6 @@
 {
   "name": "float-search-next",
-  "version": "4.3.0",
+  "version": "0.0.0",
   "description": "Search in a floating modal, split, tab or window, with a quick switcher, filters and saved searches. A maintained continuation of Floating Search by Boninall.",
   "main": "main.js",
   "scripts": {

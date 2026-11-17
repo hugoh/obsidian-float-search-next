@@ -31,8 +31,7 @@ Not taken:
   and its URI fix deletes `.suggestion-container` from the DOM after a 10ms timer.
 - Rebranding (plugin id `float-search-window`, version numbers 1.x / 4.4-4.8) from
   the two forks. This project is its own plugin, **Floating Search Next**
-  (`float-search-next`); its version line continues upstream's, so the first
-  release is 5.0.0 (4.3.0 plus the breaking changes below).
+  (`float-search-next`) and starts its own version line at 0.1.0.
 - Agent notes, a stray temp file and `package-lock.json` from Peingxious's fork.
 
 All sources are GPL-3.0; see `LICENSE` and `NOTICE`.
@@ -153,7 +152,9 @@ Tracked from the code review; move a row to the fixes table when done.
 - Installing both at once conflicts (same patched internals, same `obsidian://fs`
   handler, same CSS class names); the README says to disable the original first.
 - Settings are stored per plugin id, so users start fresh; there is no automatic import.
-- The first release is forced to 5.0.0 with `release-as` in
-  `release-please-config.json`; remove that line after the first release.
-- Breaking changes since 4.3.0: minimum Obsidian 1.5.7, `block:`/`section:`/`line:`
+- Versions start at 0.1.0: the files carry `0.0.0` and `release-as: 0.1.0` in
+  `release-please-config.json` forces the first release. Remove `release-as`
+  after that release. While below 1.0, `bump-minor-pre-major` keeps breaking
+  changes in the 0.x line.
+- Differences from upstream 4.3.0 that users should know about: minimum Obsidian 1.5.7, `block:`/`section:`/`line:`
   semantics, saved-search command ids, the new plugin id.
