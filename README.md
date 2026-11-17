@@ -1,10 +1,16 @@
-# Obsidian Float Search
+# Floating Search Next
 
-You can use search view in modal now.
+Use Obsidian's search in a floating modal, split, tab or pop-out window, with a quick switcher, filters and saved searches.
 
-> **About this version.** The original plugin is no longer actively maintained, and several people have kept it alive in their own forks, each fixing and adding different things. The goal of this version is to **bring all of those forks together into one cleaned-up codebase**: harvest what is useful from each, reconcile the overlaps, add tests, and fix the lint backlog.
+> **About this plugin.** Floating Search Next is a maintained continuation of [Floating Search](https://github.com/Quorafind/Obsidian-Float-Search) by Boninall. The original is no longer actively maintained, and several people have kept it alive in their own forks, each fixing and adding different things. The goal here is to **bring all of those forks together into one cleaned-up codebase**: harvest what is useful from each, reconcile the overlaps, add tests, and fix the lint backlog.
 >
 > Yes, we are aware of [xkcd 927](https://xkcd.com/927/): this is, technically, *yet another fork*, created to standardize all the forks. Let us hope it turns out better than the comic predicts. If you maintain a fork with something worth including, please open an issue or PR.
+
+## Coming from Floating Search?
+
+Disable or uninstall the original **Floating Search** plugin before enabling this one. Both change the same parts of Obsidian and both answer `obsidian://fs` links, so running them together causes conflicts.
+
+Settings are stored per plugin, so nothing carries over automatically: set your options again and re-add any saved searches and hidden folders. Commands have new ids, so rebind any hotkeys under **Settings → Hotkeys** (search for "Floating Search Next").
 
 ![float-search.png](media/img.png)
 
@@ -132,12 +138,3 @@ This project is licensed under the **GNU General Public License v3.0** (see [LIC
 | [pjeby/monkey-around](https://github.com/pjeby/monkey-around) | Method patching (bundled dependency) | ISC |
 
 [smilingpoplar/Obsidian-Float-Search](https://github.com/smilingpoplar/Obsidian-Float-Search) (GPL-3.0) was reviewed; its changes are covered by the code above or were not taken. See [NOTICE](NOTICE) for the full third-party notices.
-
----
-
-## Support
-
-If you are enjoying this plugin then please support my work and enthusiasm by buying me a coffee
-on [https://www.buymeacoffee.com/boninall](https://www.buymeacoffee.com/boninall).
-
-<a href="https://www.buymeacoffee.com/boninall"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=boninall&button_colour=6495ED&font_colour=ffffff&font_family=Lato&outline_colour=000000&coffee_colour=FFDD00"></a>

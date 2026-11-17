@@ -6,7 +6,7 @@ name: e2e
 on: # yamllint disable-line rule:truthy
   push:
     branches:
-      - master
+      - main
   pull_request:
   workflow_dispatch:
 

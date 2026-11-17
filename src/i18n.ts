@@ -38,7 +38,6 @@ const VIEW_TYPE_ZH: Record<ViewTypeKey, string> = {
 
 export interface Strings {
   pluginIntro: string;
-  settingsTitle: string;
   tabGeneral: string;
   tabQuickSearch: string;
   tabQuickCreate: string;
@@ -141,7 +140,6 @@ export interface Strings {
 const EN: Strings = {
   pluginIntro:
     "Use Obsidian's built-in search in a floating modal, split, tab, or independent window.",
-  settingsTitle: "Float Search Window",
   tabGeneral: "General",
   tabQuickSearch: "Quick Search",
   tabQuickCreate: "Quick Create",
@@ -204,7 +202,7 @@ const EN: Strings = {
   cmdSearchTaskTodo: "Search: task-todo: (Find matches in uncompleted tasks)",
   cmdSearchTaskDone: "Search: task-done: (Find matches in completed tasks)",
   cmdSearchProperty: "Search: [property] or [property:value]",
-  menuSearchInFloat: (query) => `Search "${query}" in Float Search`,
+  menuSearchInFloat: (query) => `Search "${query}" in Floating Search Next`,
   menuOpenInFloatPreview: "Open in Float Preview",
   instrNavigate: "Navigate",
   instrCollapse: "Collapse/Expand",
@@ -236,11 +234,11 @@ const EN: Strings = {
   exclusions: "Hide from results",
   excludeFolders: "Exclude folders",
   excludeFoldersDesc:
-    "Folders left out of Float Search results (quick search and the main search). This only filters this plugin's results; it does not protect the notes. Pick a folder from the list; click a pill to remove.",
+    "Folders left out of the results (quick search and the main search). This only filters this plugin's results; it does not protect the notes. Pick a folder from the list; click a pill to remove.",
   phTemplates: "e.g. Templates",
   excludeFiles: "Exclude files",
   excludeFilesDesc:
-    "Notes left out of Float Search results. This only filters this plugin's results; it does not protect the notes. Pick a note from the list; click a pill to remove.",
+    "Notes left out of the results. This only filters this plugin's results; it does not protect the notes. Pick a note from the list; click a pill to remove.",
   phSecrets: "e.g. Drafts/scratch.md",
   savedSearches: "Saved searches",
   addSavedSearch: "Add saved search",
@@ -257,7 +255,6 @@ const EN: Strings = {
 
 const ZH: Strings = {
   pluginIntro: "把Obsidian自带搜索放到浮动弹窗、分栏、标签页或独立窗口里用。",
-  settingsTitle: "Float Search Window",
   tabGeneral: "常规",
   tabQuickSearch: "快速搜索",
   tabQuickCreate: "快速新建",
@@ -354,11 +351,11 @@ const ZH: Strings = {
   exclusions: "从结果中隐藏",
   excludeFolders: "排除文件夹",
   excludeFoldersDesc:
-    "不在 Float Search 结果（极速搜索与主搜索）中显示的文件夹。这只是过滤本插件的结果，并不保护这些笔记。从列表中选择，点击胶囊可删除。",
+    "不在结果（极速搜索与主搜索）中显示的文件夹。这只是过滤本插件的结果，并不保护这些笔记。从列表中选择，点击胶囊可删除。",
   phTemplates: "例如：Templates",
   excludeFiles: "排除文件",
   excludeFilesDesc:
-    "不在 Float Search 结果中显示的笔记。这只是过滤本插件的结果，并不保护这些笔记。从列表中选择，点击胶囊可删除。",
+    "不在结果中显示的笔记。这只是过滤本插件的结果，并不保护这些笔记。从列表中选择，点击胶囊可删除。",
   phSecrets: "例如：Drafts/scratch.md",
   savedSearches: "预设搜索",
   addSavedSearch: "添加预设搜索",

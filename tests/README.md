@@ -1,4 +1,4 @@
-# Float Search regression tests
+# Floating Search Next regression tests
 
 Run after installing the repository's dependencies:
 

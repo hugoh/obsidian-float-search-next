@@ -212,7 +212,6 @@ export class FloatSearchSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("float-search-settings-tab");
 
-    new Setting(containerEl).setName(s.settingsTitle).setHeading();
     containerEl.createEl("p", {
       cls: "float-search-settings-intro",
       text: s.pluginIntro,

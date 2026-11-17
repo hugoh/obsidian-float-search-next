@@ -1,6 +1,6 @@
 # Consolidation notes
 
-This version brings the forks of [Quorafind/Obsidian-Float-Search](https://github.com/Quorafind/Obsidian-Float-Search)
+Floating Search Next brings the forks of [Quorafind/Obsidian-Float-Search](https://github.com/Quorafind/Obsidian-Float-Search)
 together. This file records **where each feature came from** and **every fix made
 while merging and cleaning up**, so the history does not have to be reverse
 engineered from the commits. Keep it up to date when changing either.
@@ -30,7 +30,9 @@ Not taken:
   its scroll-to-top change is superseded by upstream's preview scroll-to-position,
   and its URI fix deletes `.suggestion-container` from the DOM after a 10ms timer.
 - Rebranding (plugin id `float-search-window`, version numbers 1.x / 4.4-4.8) from
-  the two forks: this project keeps the upstream id `float-search` and version line.
+  the two forks. This project is its own plugin, **Floating Search Next**
+  (`float-search-next`); its version line continues upstream's, so the first
+  release is 5.0.0 (4.3.0 plus the breaking changes below).
 - Agent notes, a stray temp file and `package-lock.json` from Peingxious's fork.
 
 All sources are GPL-3.0; see `LICENSE` and `NOTICE`.
@@ -140,3 +142,16 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 Tracked from the code review; move a row to the fixes table when done.
 
 - The two modals still have separate preview rendering (they differ in layout and focus handling).
+
+## Naming and releasing
+
+- The upstream id `float-search` and name "Floating Search" belong to the original
+  listing, so this is a separate plugin. The "Next" suffix follows directory
+  precedent for maintained continuations (for example "Note Refactor Next").
+- Installing both at once conflicts (same patched internals, same `obsidian://fs`
+  handler, same CSS class names); the README says to disable the original first.
+- Settings are stored per plugin id, so users start fresh; there is no automatic import.
+- The first release is forced to 5.0.0 with `release-as` in
+  `release-please-config.json`; remove that line after the first release.
+- Breaking changes since 4.3.0: minimum Obsidian 1.5.7, `block:`/`section:`/`line:`
+  semantics, saved-search command ids, the new plugin id.

@@ -13,7 +13,8 @@
           "path": "manifest.json",
           "jsonpath": "$.version"
         }
-      ]
+      ],
+      "release-as": "5.0.0"
     }
   }
 }

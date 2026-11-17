@@ -1,7 +1,7 @@
 {
-  "name": "float-search",
+  "name": "float-search-next",
   "version": "4.3.0",
-  "description": "You can use search view in modal/leaf/popout window now.",
+  "description": "Search in a floating modal, split, tab or window, with a quick switcher, filters and saved searches. A maintained continuation of Floating Search by Boninall.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit && tsc -p test"
   },
   "keywords": [],
-  "author": "Boninall",
+  "author": "Hugo Haas",
   "license": "GPL-3.0",
   "devDependencies": {
     "@types/bun": "^1.4.4",
