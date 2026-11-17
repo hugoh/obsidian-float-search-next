@@ -10,6 +10,7 @@ import {
 	ObsidianProtocolData,
 	OpenViewState,
 	PaneType,
+	AbstractInputSuggest,
 	Plugin,
 	renderResults,
 	SearchResult,
@@ -17,9 +18,11 @@ import {
 	SearchView,
 	setIcon,
 	PluginSettingTab,
+	prepareFuzzySearch,
 	Setting,
 	SuggestModal,
 	TAbstractFile,
+	TFolder,
 	TFile,
 	Workspace,
 	WorkspaceContainer,
@@ -27,9 +30,10 @@ import {
 	WorkspaceLeaf,
 } from "obsidian";
 import { EmbeddedView, isEmebeddedLeaf, spawnLeafView } from "./leafView";
+import { SearchFilter, parseQuery, requiresContent, type Query, type Clause } from "./searchFilter";
 import { around } from "monkey-around";
 import { debounce } from "obsidian";
-import { strings } from "./i18n";
+import { strings, t } from "./i18n";
 import {
 	applyNativeResultFilters,
 	bindNativeRegexSearch,
@@ -67,6 +71,11 @@ interface searchState extends Record<string, unknown> {
 
 type CmdkTriggerKey = "Shift" | "Control" | "Alt" | "Meta" | "none";
 
+interface SavedSearch {
+	name: string;
+	query: string;
+}
+
 interface FloatSearchSettings {
 	searchViewState: searchState;
 	showFilePath: boolean;
@@ -82,6 +91,9 @@ interface FloatSearchSettings {
 	filterStarredOnly: boolean;
 	filterMatchCase: boolean;
 	filterUseRegex: boolean;
+	excludeFolders: string[];
+	excludeFiles: string[];
+	savedSearches: SavedSearch[];
 }
 
 const DEFAULT_SETTINGS: FloatSearchSettings = {
@@ -106,7 +118,14 @@ const DEFAULT_SETTINGS: FloatSearchSettings = {
 	filterStarredOnly: false,
 	filterMatchCase: false,
 	filterUseRegex: false,
+	excludeFolders: [],
+	excludeFiles: [],
+	savedSearches: [],
 };
+
+// Single plugin instance, used to apply exclusion rules inside module-scope helpers
+// (e.g. initSearchViewWithLeaf) that don't otherwise have access to the plugin.
+let activePlugin: FloatSearchPlugin | null = null;
 
 const allViews: viewType[] = [
 	{
@@ -147,6 +166,15 @@ const initSearchViewWithLeaf = async (
 		state: {
 			...DEFAULT_SETTINGS.searchViewState,
 			...state,
+			query: activePlugin
+				? activePlugin.withExclusion(
+						new SearchFilter(app).toNativeQuery(
+							(state?.query as string) ?? ""
+						)
+				  )
+				: new SearchFilter(app).toNativeQuery(
+						(state?.query as string) ?? ""
+				  ),
 			triggerBySelf: true,
 		},
 	});
@@ -165,6 +193,13 @@ export default class FloatSearchPlugin extends Plugin {
 
 	allLoaded = false;
 	queryLoaded = false;
+
+	// Candidate ① guards: prevent the setState re-route from spawning a new
+	// Float Search on every external setState (which would loop forever and
+	// freeze Obsidian). `routingQuery` blocks re-entrancy; `lastRoutedQuery`
+	// deduplicates repeated setStates carrying the same query.
+	routingQuery: boolean = false;
+	lastRoutedQuery: string = "";
 
 	patchedDomChildren = false;
 
@@ -193,18 +228,19 @@ export default class FloatSearchPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+		activePlugin = this;
 
 		this.app.workspace.onLayoutReady(() => {
 			this.initState();
 			this.registerIcons();
-
-			this.patchWorkspace();
-			this.patchWorkspaceLeaf();
-			this.patchSearchView();
-			this.patchVchildren();
-			this.patchDragManager();
+			// The prototype monkeypatches (patchWorkspace / patchSearchView / …)
+			// are deferred to first use via ensurePatched() — they are only
+			// needed once the user actually opens a float search, so we no
+			// longer pay for them at every startup (candidate ⑤).
 			this.registerDoubleKeyHandler();
 		});
+
+		this.registerContentCacheInvalidation();
 
 		this.registerObsidianURIHandler();
 		this.registerObsidianCommands();
@@ -216,6 +252,7 @@ export default class FloatSearchPlugin extends Plugin {
 			"float-search-window",
 			strings().ribbonSearch(this.settings.defaultViewType),
 			() => {
+				this.ensurePatched();
 				if (this.settings.defaultViewType === "modal") {
 					this.initModal(this.state, true, true);
 				} else {
@@ -238,6 +275,89 @@ export default class FloatSearchPlugin extends Plugin {
 		// this.state = DEFAULT_SETTINGS.searchViewState;
 		this.modal?.close();
 		this.cmdkModal?.close();
+	}
+
+	// Candidate ④: warm, plugin-scoped content cache shared across every CMDK
+	// open (no longer cleared on each open). Invalidated per-path on vault
+	// changes; capped with a simple LRU to bound memory.
+	public contentCache = new Map<string, { mtime: number; text: string }>();
+	private readonly CONTENT_CACHE_MAX = 2000;
+
+	cacheFileContent(path: string, mtime: number, text: string) {
+		if (this.contentCache.size >= this.CONTENT_CACHE_MAX) {
+			const oldest = this.contentCache.keys().next().value;
+			if (oldest !== undefined) this.contentCache.delete(oldest);
+		}
+		this.contentCache.set(path, { mtime, text });
+	}
+
+	private registerContentCacheInvalidation() {
+		this.registerEvent(
+			this.app.vault.on("modify", (f) => this.contentCache.delete(f.path))
+		);
+		this.registerEvent(
+			this.app.vault.on("rename", (_f, oldPath) =>
+				this.contentCache.delete(oldPath)
+			)
+		);
+		this.registerEvent(
+			this.app.vault.on("delete", (f) => this.contentCache.delete(f.path))
+		);
+	}
+
+	// Candidate ⑤: run the prototype monkeypatches exactly once, on first use,
+	// instead of unconditionally at every startup.
+	private patched = false;
+	private ensurePatched() {
+		if (this.patched) return;
+		this.patched = true;
+		this.patchWorkspace();
+		this.patchWorkspaceLeaf();
+		this.patchSearchView();
+		this.patchVchildren();
+		this.patchDragManager();
+		this.patchEditorHighlights();
+	}
+
+	// Obsidian's search addon calls removeHighlights()/hasHighlight() on every
+	// markdown editor whenever a search runs. Editors created inside the
+	// embedded (HoverPopover) preview leaf may not have the search-highlight
+	// StateField registered in their CodeMirror state, so `state.field(...)`
+	// throws "Field is not present in this state" and crashes the app. Wrap
+	// both methods defensively so the embedded preview can never crash Obsidian
+	// — when the field is absent there are simply no highlights to manage.
+	private patchEditorHighlights() {
+		const proto = Editor.prototype as any;
+		const uninstallers: Array<() => void> = [];
+		for (const name of ["removeHighlights", "hasHighlight"] as const) {
+			const orig = proto[name];
+			if (!orig || orig.__fsPatched) continue;
+			const wrapped = function (...args: any[]) {
+				try {
+					return orig.apply(this, args);
+				} catch (e) {
+					if (
+						e instanceof RangeError &&
+						/Field is not present in this state/.test(
+							e.message
+						)
+					) {
+						return name === "hasHighlight" ? false : undefined;
+					}
+					throw e;
+				}
+			};
+			wrapped.__fsPatched = true;
+			proto[name] = wrapped;
+			// Restore the original method on plugin unload so we don't leave a
+			// permanent patch on Editor.prototype for every editor in the app.
+			uninstallers.push(() => {
+				proto[name] = orig;
+			});
+		}
+		if (uninstallers.length) {
+			this.register(() => uninstallers.forEach((u) => u()));
+		}
 	}
 
 	registerDoubleKeyHandler() {
@@ -273,11 +393,12 @@ export default class FloatSearchPlugin extends Plugin {
 		});
 	}
 
-	openCmdkModal() {
+	openCmdkModal(initialFilters?: string[]) {
+		this.ensurePatched();
 		if (this.cmdkModal) {
 			this.cmdkModal.close();
 		}
-		this.cmdkModal = new FloatSearchCmdkModal(this);
+		this.cmdkModal = new FloatSearchCmdkModal(this, initialFilters);
 		this.cmdkModal.open();
 	}
 
@@ -292,11 +413,120 @@ export default class FloatSearchPlugin extends Plugin {
 		this.applySettingsUpdate();
 	}
 
+	// ── Exclusion helpers ──────────────────────────────────────────────
+	// Public so the CMDK modal (a separate class) can reuse the same
+	// normalisation when building its candidate-file set.
+	normalizePath(p: string): string {
+		return p.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+	}
+
+	buildExcludeClause(): string {
+		const parts: string[] = [];
+		for (const raw of this.settings.excludeFolders) {
+			const p = this.normalizePath(raw);
+			if (p) parts.push(`-path:"${p}/"`);
+		}
+		for (const raw of this.settings.excludeFiles) {
+			const p = this.normalizePath(raw);
+			if (p) parts.push(`-path:"${p}"`);
+		}
+		return parts.join(" ");
+	}
+
+	withExclusion(query: string): string {
+		const clause = this.buildExcludeClause();
+		const q = (query ?? "").trim();
+		if (!clause) return q;
+		if (q.includes(clause)) return q;
+		return q ? `${q} ${clause}` : clause;
+	}
+
+	stripExclusion(query: string): string {
+		const clause = this.buildExcludeClause();
+		let q = query ?? "";
+		if (clause) q = q.split(clause).join("");
+		return q.replace(/\s+/g, " ").trim();
+	}
+
+	isFileExcluded(file: TFile): boolean {
+		const folders = this.settings.excludeFolders
+			.map((f) => this.normalizePath(f))
+			.filter(Boolean);
+		const files = this.settings.excludeFiles
+			.map((f) => this.normalizePath(f))
+			.filter(Boolean);
+		const path = file.path;
+		if (
+			files.some((f) => f === path || f === file.name)
+		)
+			return true;
+		if (
+			folders.some((f) => path === f || path.startsWith(f + "/"))
+		)
+			return true;
+		return false;
+	}
+
+	// ── Saved searches ────────────────────────────────────────────────
+	private slug(name: string): string {
+		return (
+			name
+				.trim()
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "-")
+				.replace(/^-+|-+$/g, "") || "x"
+		);
+	}
+
+	private registeredSavedIds = new Set<string>();
+
+	registerSavedSearchCommands() {
+		for (const s of this.settings.savedSearches) {
+			const id = "savedsearch-" + this.slug(s.name);
+			if (this.registeredSavedIds.has(id)) continue;
+			this.registeredSavedIds.add(id);
+			this.addCommand({
+				id,
+				name: t("savedSearchCmd", { name: s.name }),
+				callback: () => this.openCmdkModal([s.query]),
+			});
+		}
+	}
+
+	addSavedSearch(name: string, query: string) {
+		this.settings.savedSearches.push({ name, query });
+		this.saveSettings();
+		this.registerSavedSearchCommands();
+	}
+
+	// Open the main Float Search (modal or configured view) with a query.
+	// Exclusion rules are applied automatically by the target search view.
+	openSearchWithQuery(query: string) {
+		this.ensurePatched();
+		const viewType = this.settings.defaultViewType;
+		const nativeQuery = new SearchFilter(this.app).toNativeQuery(query);
+		const state = { ...this.state, query: nativeQuery, current: true };
+		if (viewType === "modal") {
+			this.initModal(state, true, false);
+		} else {
+			initSearchViewWithLeaf(
+				this.app,
+				viewType as PaneType | "sidebar",
+				state
+			);
+		}
+	}
+
 	initState() {
-		// Initialize state with all default properties
+		// Initialize state with all default properties.
+		// We intentionally do NOT inherit the persisted `query` from
+		// settings.searchViewState, so the float search always opens with a
+		// global (empty) scope. Folder/tag restrictions (path:/tag:) are only
+		// applied when the user types them or picks a saved search chip.
 		this.state = {
 			...DEFAULT_SETTINGS.searchViewState,
 			...this.settings.searchViewState,
+			query: "",
 		};
 	}
 
@@ -305,6 +535,7 @@ export default class FloatSearchPlugin extends Plugin {
 		stateSave = false,
 		clearQuery = false
 	) {
+		this.ensurePatched();
 		if (this.modal) {
 			this.modal.close();
 		}
@@ -335,7 +566,7 @@ export default class FloatSearchPlugin extends Plugin {
 			getLeaf: (next) =>
 				function (...args) {
 					const activeLeaf = (this as Workspace).activeLeaf;
-					if (activeLeaf) {
+					if (activeLeaf?.parent) {
 						// @ts-ignore
 						const fsCtnEl = (
 							activeLeaf.parent.containerEl as HTMLElement
@@ -640,10 +871,16 @@ export default class FloatSearchPlugin extends Plugin {
 									y: viewSwitchButtonPos.y + 30,
 								});
 							});
-							targetEl.parentElement.insertBefore(
-								viewSwitchEl,
-								targetEl
-							);
+						// Remove any previously inserted switch button first so
+						// repeated rebuilds (rebuildView -> onOpen) don't stack
+						// multiple copies and bloat the search view DOM.
+						targetEl.parentElement
+							.querySelector(".float-search-view-switch")
+							?.remove();
+						targetEl.parentElement.insertBefore(
+							viewSwitchEl,
+							targetEl
+						);
 							if (!this.hidePathToggle) {
 								this.hidePathToggle = new Setting(
 									this.searchParamsContainerEl
@@ -767,57 +1004,76 @@ export default class FloatSearchPlugin extends Plugin {
 						return function (value: string) {
 							old.call(this, value);
 							if (self.app.workspace.layoutReady) {
-								self.settings.searchViewState.query = value;
+								self.settings.searchViewState.query =
+									self.stripExclusion(value);
 								self.applySettingsUpdate();
 							}
 						};
 					},
-					setState(old) {
-						return function (
-							state: any,
-							eState: Record<string, unknown>
+				setState(old) {
+					return function (
+						state: any,
+						eState: Record<string, unknown>
+					) {
+						if (
+							typeof state.query === "string" &&
+							!state?.triggerBySelf
 						) {
-							if (
-								typeof state.query === "string" &&
-								!state?.triggerBySelf
-							) {
-								if (self.queryLoaded) {
-									if (
-										self.settings.defaultViewType ===
-										"modal"
-									) {
-										self.initModal(
-											{
-												...state,
-												query: state.query,
-												current: false,
-												triggerBySelf: true,
-											},
-											true,
-											false
-										);
-									} else {
-										initSearchViewWithLeaf(
-											self.app,
-											self.settings.defaultViewType,
-											{
-												...state,
-												query: state.query,
-												current: false,
-												triggerBySelf: true,
-											}
-										);
+							if (self.queryLoaded) {
+								// Re-route an external query to a Float Search,
+								// but guard against re-entrant spawning (which
+								// would recurse) and against spawning again for
+								// the SAME query (which would otherwise loop
+								// endlessly and freeze Obsidian).
+								const changed =
+									state.query &&
+									state.query !== self.lastRoutedQuery;
+								if (changed && !self.routingQuery) {
+									self.routingQuery = true;
+									try {
+										if (
+											self.settings.defaultViewType ===
+											"modal"
+										) {
+											self.initModal(
+												{
+													...state,
+													query: state.query,
+													current: false,
+													triggerBySelf: true,
+												},
+												true,
+												false
+											);
+										} else {
+											initSearchViewWithLeaf(
+												self.app,
+												self.settings.defaultViewType,
+												{
+													...state,
+													query: state.query,
+													current: false,
+													triggerBySelf: true,
+												}
+											);
+										}
+										self.lastRoutedQuery = state.query;
+									} finally {
+										self.routingQuery = false;
 									}
-
-									return;
 								}
-
-								self.queryLoaded = true;
+								// The Float Search takes over; do NOT apply the
+								// query to the native view (matches original
+								// behaviour and avoids a second redundant search).
+								return;
 							}
 
-							old.call(this, state, eState);
-						};
-					},
+							self.queryLoaded = true;
+						}
+
+						old.call(this, state, eState);
+					};
+				},
 				})
 			);
 			searchView.leaf?.rebuildView();
@@ -1141,6 +1397,8 @@ export default class FloatSearchPlugin extends Plugin {
 				},
 			});
 		}
+
+		this.registerSavedSearchCommands();
 	}
 
 	registerSearchOperatorCommands() {
@@ -1347,11 +1605,35 @@ export default class FloatSearchPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+		type LegacySettings = Partial<FloatSearchSettings> & {
+			filterButtons?: { name: string; query: string }[];
+		};
+		const data = (await this.loadData()) as LegacySettings;
+		const merged: FloatSearchSettings & {
+			filterButtons?: { name: string; query: string }[];
+		} = Object.assign({}, DEFAULT_SETTINGS, data);
+
+		// Merge the legacy "filter buttons" feature into saved searches so the
+		// single preset list drives the CMDK filter chips.
+		if (Array.isArray(data.filterButtons)) {
+			for (const fb of data.filterButtons) {
+				if (
+					fb?.name &&
+					fb?.query &&
+					!merged.savedSearches.some(
+						(s) => s.query.trim() === fb.query.trim()
+					)
+				) {
+					merged.savedSearches.push({
+						name: fb.name,
+						query: fb.query,
+					});
+				}
+			}
+			delete merged.filterButtons;
+		}
+
+		this.settings = merged;
 	}
 
 	async saveSettings() {
@@ -1370,11 +1652,140 @@ const triggerKeyOptions = (): Record<CmdkTriggerKey, string> => {
 	};
 };
 
-type SettingsTabId = "general" | "quick-search" | "quick-create";
+type SettingsTabId = "general" | "quick-search" | "quick-create" | "filters";
+
+class NamePromptModal extends Modal {
+	private defaultValue: string;
+	private result: (value: string | null) => void;
+
+	constructor(
+		app: App,
+		defaultValue: string,
+		result: (value: string | null) => void
+	) {
+		super(app);
+		this.defaultValue = defaultValue;
+		this.result = result;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass("float-search-prompt");
+		contentEl.createEl("h3", { text: t("saveAsPreset") });
+		const input = contentEl.createEl("input", {
+			type: "text",
+			placeholder: t("presetName"),
+		});
+		input.value = this.defaultValue;
+		const row = contentEl.createDiv({ cls: "float-search-prompt-row" });
+		const ok = row.createEl("button", { text: t("save") });
+		const cancel = row.createEl("button", { text: t("cancel") });
+
+		const submit = () => {
+			const v = input.value.trim();
+			this.result(v || this.defaultValue);
+			this.close();
+		};
+		ok.onClickEvent(() => submit());
+		cancel.onClickEvent(() => {
+			this.result(null);
+			this.close();
+		});
+		input.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") submit();
+			if (e.key === "Escape") {
+				this.result(null);
+				this.close();
+			}
+		});
+		setTimeout(() => input.focus(), 0);
+	}
+
+	onClose() {
+		this.contentEl.empty();
+	}
+}
+
+function buildPillList(
+	container: HTMLElement,
+	items: string[],
+	onRemove: (index: number) => void
+) {
+	const wrap = container.createDiv({ cls: "float-search-pill-list" });
+	wrap.empty();
+	items.forEach((item, i) => {
+		const pill = wrap.createDiv({ cls: "float-search-pill" });
+		pill.setText(item);
+		pill.title = t("clickToRemove");
+		pill.onClickEvent(() => onRemove(i));
+	});
+	return wrap;
+}
+
+function promptForName(
+	app: App,
+	defaultValue: string
+): Promise<string | null> {
+	return new Promise((resolve) => {
+		new NamePromptModal(app, defaultValue, resolve).open();
+	});
+}
+
+/**
+ * Folder / file picker backed by the official vault API. As the user types,
+ * it shows a fuzzy-filtered list of real vault folders or files, so the
+ * exact path never has to be typed by hand.
+ */
+class PathSuggest extends AbstractInputSuggest<TFolder | TFile> {
+	constructor(
+		app: App,
+		private inputEl: HTMLInputElement,
+		private kind: "folder" | "file",
+		private onPick: (path: string) => void
+	) {
+		super(app, inputEl);
+	}
+
+	getSuggestions(query: string): (TFolder | TFile)[] {
+		const pool = this.app.vault
+			.getAllLoadedFiles()
+			.filter((f) =>
+				this.kind === "folder"
+					? f instanceof TFolder && f.path !== ""
+					: f instanceof TFile
+			) as (TFolder | TFile)[];
+		if (!query) return pool.slice(0, 50);
+		const fuzzy = prepareFuzzySearch(query);
+		return pool
+			.map((f) => ({ f, m: fuzzy(f.path) }))
+			.filter((x) => x.m)
+			.sort(
+				(a, b) =>
+					(b.m!.score ?? -Infinity) - (a.m!.score ?? -Infinity)
+			)
+			.slice(0, 50)
+			.map((x) => x.f);
+	}
+
+	renderSuggestion(value: TFolder | TFile, el: HTMLElement) {
+		el.setText(value.path || "/");
+	}
+
+	selectSuggestion(value: TFolder | TFile) {
+		this.onPick(value.path);
+		this.inputEl.value = "";
+		this.close();
+	}
+}
 
 class FloatSearchSettingTab extends PluginSettingTab {
 	plugin: FloatSearchPlugin;
 	private activeTab: SettingsTabId = "general";
+	// Reference to the saved-search list container so it can be re-rendered
+	// in place (preserving the settings scroll position) instead of calling
+	// the full display() that rebuilds everything and jumps the scroll.
+	private savedListEl?: HTMLElement;
 
 	constructor(app: App, plugin: FloatSearchPlugin) {
 		super(app, plugin);
@@ -1400,6 +1811,7 @@ class FloatSearchSettingTab extends PluginSettingTab {
 			{ id: "general", name: s.tabGeneral },
 			{ id: "quick-search", name: s.tabQuickSearch },
 			{ id: "quick-create", name: s.tabQuickCreate },
+			{ id: "filters", name: t("tabFilters") },
 		];
 		for (const tab of tabsList) {
 			const btn = tabsContainer.createEl("button", { text: tab.name });
@@ -1416,7 +1828,9 @@ class FloatSearchSettingTab extends PluginSettingTab {
 		if (this.activeTab === "general") this.renderGeneral(content, s);
 		else if (this.activeTab === "quick-search")
 			this.renderQuickSearch(content, s);
-		else this.renderQuickCreate(content, s);
+		else if (this.activeTab === "quick-create")
+			this.renderQuickCreate(content, s);
+		else this.renderFilters(content);
 	}
 
 	private renderGeneral(container: HTMLElement, s: ReturnType<typeof strings>) {
@@ -1539,6 +1953,212 @@ class FloatSearchSettingTab extends PluginSettingTab {
 					});
 			});
 	}
+
+	private renderFilters(container: HTMLElement) {
+		// ── Exclusions ──────────────────────────────────────────────
+		container.createEl("h3", { text: t("exclusions") });
+
+		// Exclude folders
+		new Setting(container)
+			.setName(t("excludeFolders"))
+			.setDesc(t("excludeFoldersDesc"))
+			.addText((text) => {
+				text.setPlaceholder(t("phTemplates"));
+				new PathSuggest(
+					this.app,
+					text.inputEl,
+					"folder",
+					async (path) => {
+						if (
+							!this.plugin.settings.excludeFolders.includes(
+								path
+							)
+						) {
+							this.plugin.settings.excludeFolders.push(path);
+							await this.plugin.saveSettings();
+							this.display();
+						}
+					}
+				);
+			});
+		buildPillList(
+			container,
+			this.plugin.settings.excludeFolders,
+			async (i) => {
+				this.plugin.settings.excludeFolders.splice(i, 1);
+				await this.plugin.saveSettings();
+				this.display();
+			}
+		);
+
+		// Exclude files
+		new Setting(container)
+			.setName(t("excludeFiles"))
+			.setDesc(t("excludeFilesDesc"))
+			.addText((text) => {
+				text.setPlaceholder(t("phSecrets"));
+				new PathSuggest(
+					this.app,
+					text.inputEl,
+					"file",
+					async (path) => {
+						if (
+							!this.plugin.settings.excludeFiles.includes(
+								path
+							)
+						) {
+							this.plugin.settings.excludeFiles.push(path);
+							await this.plugin.saveSettings();
+							this.display();
+						}
+					}
+				);
+			});
+		buildPillList(
+			container,
+			this.plugin.settings.excludeFiles,
+			async (i) => {
+				this.plugin.settings.excludeFiles.splice(i, 1);
+				await this.plugin.saveSettings();
+				this.display();
+			}
+		);
+
+		// ── Saved searches ─────────────────────────────────────────
+		container.createEl("h3", { text: t("savedSearches") });
+
+		const addSetting = new Setting(container).setName(
+			t("addSavedSearch")
+		);
+		addSetting.setDesc(t("addSavedSearchDesc"));
+		let nameInput: any;
+		let queryInput: any;
+		addSetting.addText((text) => {
+			nameInput = text;
+			text.setPlaceholder(t("namePlaceholder"));
+		});
+		addSetting.addText((text) => {
+			queryInput = text;
+			text.setPlaceholder(t("queryPlaceholder"));
+		});
+		addSetting.addButton((button) => {
+			button
+				.setButtonText(t("add"))
+				.setCta()
+				.onClick(async () => {
+					const name = nameInput?.inputEl.value.trim();
+					const query = queryInput?.inputEl.value.trim();
+					if (name && query) {
+					this.plugin.addSavedSearch(name, query);
+					this.renderSavedList();
+					nameInput.inputEl.value = "";
+					queryInput.inputEl.value = "";
+					}
+				});
+		});
+
+		// Saved search list (rendered by its own method so it can be
+		// refreshed in place without rebuilding the whole settings tab).
+		const listEl = container.createDiv({
+			cls: "float-search-saved-list",
+		});
+		this.savedListEl = listEl;
+		this.renderSavedList();
+	}
+
+	// Re-render only the saved-search list in place. Used after add / edit /
+	// delete so the settings tab scroll position is preserved (calling the
+	// full display() rebuilds everything and jumps the scroll to the top).
+	private renderSavedList() {
+		const listEl = this.savedListEl;
+		if (!listEl) return;
+		listEl.empty();
+		this.plugin.settings.savedSearches.forEach((s, i) => {
+			const row = listEl.createDiv({
+				cls: "float-search-saved-row",
+			});
+			const label = row.createDiv({
+				cls: "float-search-saved-label",
+			});
+			label.createSpan({ cls: "float-search-saved-name" }).setText(
+				s.name
+			);
+			label.createSpan({
+				cls: "float-search-saved-query",
+			}).setText(s.query);
+
+			// Action buttons (grouped, right-aligned)
+			const actions = row.createDiv({
+				cls: "float-search-saved-actions",
+			});
+			const edit = actions.createEl("button", {
+				text: t("edit"),
+				cls: "float-search-saved-edit",
+			});
+			const del = actions.createEl("button", {
+				text: t("delete"),
+				cls: "float-search-saved-delete",
+			});
+
+			edit.onClickEvent(() => {
+				// Turn the row into inline editable fields.
+				row.empty();
+				row.addClass("is-editing");
+				const nameField = row.createEl("input", {
+					cls: "float-search-saved-input",
+					type: "text",
+				});
+				nameField.value = s.name;
+				nameField.placeholder = t("namePlaceholder");
+				const queryField = row.createEl("input", {
+					cls: "float-search-saved-input",
+					type: "text",
+				});
+				queryField.value = s.query;
+				queryField.placeholder = t("queryPlaceholder");
+				const saveBtn = row.createEl("button", {
+					text: t("save"),
+					cls: "float-search-saved-save",
+				});
+				const cancelBtn = row.createEl("button", {
+					text: t("cancel"),
+					cls: "float-search-saved-cancel",
+				});
+				nameField.focus();
+				const commit = async () => {
+					const newName = nameField.value.trim();
+					const newQuery = queryField.value.trim();
+					if (newName && newQuery) {
+						this.plugin.settings.savedSearches[i] = {
+							name: newName,
+							query: newQuery,
+						};
+						await this.plugin.saveSettings();
+						this.plugin.registerSavedSearchCommands();
+						this.renderSavedList();
+					}
+				};
+				saveBtn.onClickEvent(() => commit());
+				queryField.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") commit();
+					if (e.key === "Escape") this.renderSavedList();
+				});
+				cancelBtn.onClickEvent(() => this.renderSavedList());
+			});
+
+			del.onClickEvent(async () => {
+				this.plugin.settings.savedSearches.splice(i, 1);
+				await this.plugin.saveSettings();
+				this.renderSavedList();
+			});
+		});
+		if (this.plugin.settings.savedSearches.length === 0) {
+			listEl.createDiv({
+				cls: "float-search-saved-empty",
+				text: t("noSavedSearches"),
+			});
+		}
+	}
 }
 
 function createInstructionElement(
@@ -1639,7 +2259,11 @@ class FloatSearchModal extends Modal {
 		this.unbindNativeQuery?.();
 		this.unbindNativeQuery = null;
 
-		if (this.searchLeaf) this.cb(this.searchLeaf.view.getState());
+		if (this.searchLeaf) {
+			const st = this.searchLeaf.view.getState();
+			st.query = this.plugin.stripExclusion(st.query as string);
+			this.cb(st);
+		}
 
 		this.searchLeaf?.detach();
 		this.fileLeaf?.detach();
@@ -1724,13 +2348,23 @@ class FloatSearchModal extends Modal {
 		this.searchLeaf.setPinned(true);
 		await this.searchLeaf.setViewState({
 			type: "search",
-			state: { ...this.state, matchingCase: this.plugin.settings.filterMatchCase, triggerBySelf: true },
+			state: {
+				...this.state,
+				query: this.plugin.withExclusion(this.state.query ?? ""),
+				matchingCase: this.plugin.settings.filterMatchCase,
+				triggerBySelf: true,
+			},
 		});
 
 		setTimeout(async () => {
 			if (this.closed) return;
 			await this.searchLeaf.view.setState(
-				{ ...this.state, matchingCase: this.plugin.settings.filterMatchCase, triggerBySelf: true },
+				{
+					...this.state,
+					query: this.plugin.withExclusion(this.state.query ?? ""),
+					matchingCase: this.plugin.settings.filterMatchCase,
+					triggerBySelf: true,
+				},
 				{ history: false }
 			);
 			if (this.closed) return;
@@ -2168,8 +2802,9 @@ interface CmdkResult {
 	content?: string;
 	contentMatch?: SearchResult | null;
 	line?: number;
-	type: "file" | "heading" | "content" | "create";
+	type: "file" | "heading" | "content" | "create" | "saved" | "save";
 	createQuery?: string;
+	savedQuery?: string;
 }
 
 class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
@@ -2188,13 +2823,29 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 	private closed = false;
 	private previewRequest = 0;
 	private previewQueue: Promise<void> = Promise.resolve();
+	private debouncedUpdate = debounce(() => this.runSearch(), 150);
+	private activeFilters: string[] = [];
+	private filterMatchSets: Map<string, Set<string>> | null = null;
+	private searchFilter: SearchFilter;
+	private liveQuery: Query = { groups: [] };
+	private liveHasContent = false;
+	private filterBarEl: HTMLElement;
+	// Candidate ③: the scanned + exclusion-filtered candidate file set, built
+	// once and reused across keystrokes (invalidated on vault changes).
+	private candidateFiles: TFile[] | null = null;
+	private vaultHandlers: Array<[string, () => void]> = [];
+	// Candidate ⑥: file paths that already passed the metadata pre-filter in
+	// runSearch, so the heading phase need not re-evaluate them.
+	private passedMeta: Set<string> | null = null;
 
-	constructor(plugin: FloatSearchPlugin) {
+	constructor(plugin: FloatSearchPlugin, initialFilters?: string[]) {
 		super(plugin.app);
 		this.plugin = plugin;
 		this.limit = 50;
 		const s = strings();
 		this.setPlaceholder(s.cmdkPlaceholder);
+		this.searchFilter = new SearchFilter(this.app);
+		this.activeFilters = initialFilters ? [...initialFilters] : [];
 		this.setInstructions([
 			{ command: "↑↓", purpose: s.cmdkNavigate },
 			{ command: "↵", purpose: s.cmdkOpen },
@@ -2211,6 +2862,16 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		this.isComposing = false;
 		this.inputEl.addEventListener("compositionstart", this.compositionStart);
 		this.inputEl.addEventListener("compositionend", this.compositionEnd);
+		// Candidate ③: invalidate the cached candidate file set whenever the
+		// vault changes, so the next search rebuilds it lazily.
+		const invalidate = () => {
+			this.candidateFiles = null;
+		};
+		for (const ev of ["create", "modify", "rename", "delete"] as const) {
+			const h = invalidate;
+			(this.app.vault as any).on(ev, h);
+			this.vaultHandlers.push([ev, h]);
+		}
 		this.bodyEl = createDiv("float-search-cmdk-body");
 		this.modalEl.insertBefore(
 			this.bodyEl,
@@ -2225,6 +2886,19 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				this.updateSuggestions()
 			);
 		}
+
+		// Render filter chip bar as its own horizontal row, above the results body
+		this.filterBarEl = this.modalEl.createDiv({
+			cls: "float-search-filter-bar",
+		});
+		this.modalEl.insertBefore(this.filterBarEl, this.bodyEl);
+		this.renderFilterBar();
+
+		// If the modal was opened with presets pre-selected (e.g. via the
+		// saved-search command), filter the list immediately.
+		if (this.activeFilters.length > 0) {
+			this.runSearch();
+		}
 	}
 
 	// Required by SuggestModal but unused — we drive the chooser directly
@@ -2232,38 +2906,134 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		return [];
 	}
 
-	// Override to use progressive rendering via chooser.addSuggestion
-	updateSuggestions() {
-		if (this.closed || this.isComposing) return;
+  // Override to use progressive rendering via chooser.addSuggestion
+  updateSuggestions() {
+    if (this.closed || this.isComposing) return;
 		this.onSelectedChange.cancel();
 		this.hidePreview();
+		this.debouncedUpdate();
+  }
+
+  // ── Filter bar ─────────────────────────────────────────────────────
+  private renderFilterBar() {
+    this.filterBarEl.empty();
+    const buttons = this.plugin.settings.savedSearches;
+    if (buttons.length === 0) {
+      this.filterBarEl.style.display = "none";
+      return;
+    }
+    this.filterBarEl.style.display = "";
+
+    for (const fb of buttons) {
+      const chip = this.filterBarEl.createDiv({
+        cls: "float-search-filter-chip",
+        text: fb.name,
+      });
+      if (this.activeFilters.includes(fb.query)) {
+        chip.addClass("is-active");
+      }
+      chip.onClickEvent(() => {
+        // Single-select (mutually exclusive): clicking the active chip
+        // clears it; clicking another chip replaces the previous selection.
+        if (this.activeFilters.includes(fb.query)) {
+          this.activeFilters = [];
+        } else {
+          this.activeFilters = [fb.query];
+        }
+        this.renderFilterBar();
+        this.runSearch();
+      });
+    }
+  }
+
+  private matchesFilters(file: TFile): boolean {
+    if (this.activeFilters.length === 0) return true;
+    return this.activeFilters.every((f) =>
+      this.filterMatchSets?.get(f)?.has(file.path) ?? false
+    );
+  }
+
+  // Candidate ③: build the scanned + exclusion-filtered candidate file set
+  // once, normalising the exclusion lists a single time (not per file), and
+  // reuse it across keystrokes. Rebuilt lazily after any vault change.
+  private getCandidateFiles(): TFile[] {
+    if (this.candidateFiles) return this.candidateFiles;
+    const folders = this.plugin.settings.excludeFolders
+      .map((f) => this.plugin.normalizePath(f))
+      .filter(Boolean);
+    const fileExcludes = this.plugin.settings.excludeFiles
+      .map((f) => this.plugin.normalizePath(f))
+      .filter(Boolean);
+    const exts = new Set(["md", "canvas", "pdf", "base"]);
+    this.candidateFiles = this.app.vault.getFiles().filter((f: TFile) => {
+      if (!exts.has(f.extension)) return false;
+      const p = f.path;
+      if (fileExcludes.some((x) => x === p || x === f.name)) return false;
+      if (folders.some((x) => p === x || p.startsWith(x + "/"))) return false;
+      return true;
+    });
+    return this.candidateFiles;
+  }
+
+  // Precompute, for each active filter query, the set of file paths that
+  // match. Delegates to SearchFilter, the single source of truth for all
+  // filter matching (tag / path / folder / property / text, with AND across
+  // clauses and nested-tag support matching native search).
+  private prepareFilterMatchSets(files: TFile[]) {
+    this.filterMatchSets = this.searchFilter.buildMatchSets(
+      files,
+      this.activeFilters
+    );
+  }
+
+	private runSearch() {
 		// Cancel previous in-flight search
 		this.searchAbort?.abort();
 		const abort = (this.searchAbort = new AbortController());
 		const { signal } = abort;
+		this.passedMeta = null;
 
-		const chooser = (this as any).chooser;
-		const query = this.inputEl.value;
+    const chooser = (this as any).chooser;
+    const rawInput = this.inputEl.value;
+    const trimmed = rawInput.trim();
 
+		// Candidate ③: reuse the cached, exclusion-filtered candidate set
+		// instead of re-scanning + re-normalising exclusions on every keystroke.
 		const bookmarks = this.plugin.settings.filterStarredOnly
 			? getBookmarkedPaths(this.app)
 			: null;
-		const files = this.app.vault.getFiles().filter((f: TFile) => {
-			if (
-				f.extension !== "md" &&
-				f.extension !== "canvas" &&
-				f.extension !== "pdf" &&
-				f.extension !== "base"
-			) {
-				return false;
-			}
-			return isFileAllowed(this.plugin, f, bookmarks);
-		});
+		const files = this.getCandidateFiles().filter((f: TFile) =>
+			isFileAllowed(this.plugin, f, bookmarks)
+		);
 
-		// Empty query — show recent files
-		if (!query.trim()) {
+		// Precompute filter match sets before filtering
+		if (this.activeFilters.length > 0) {
+			this.prepareFilterMatchSets(files);
+		} else {
+			this.filterMatchSets = null;
+		}
+
+		// "Save current query" chip (shown when a query is typed and not yet saved)
+		const extra: CmdkResult[] = [];
+		if (
+			trimmed &&
+			!this.plugin.settings.savedSearches.some(
+				(s) => s.query.trim() === trimmed
+			)
+		) {
+			extra.push({
+				file: null as any,
+				nameMatch: null,
+				pathMatch: null,
+				type: "save",
+			});
+		}
+
+		// Empty query — show launcher (saved) + recent files, filtered by active chips
+		if (!trimmed) {
 			const recent = files
 				.sort((a: TFile, b: TFile) => b.stat.mtime - a.stat.mtime)
+				.filter((f: TFile) => this.matchesFilters(f))
 				.slice(0, this.limit)
 				.map((file: TFile) => ({
 					file,
@@ -2271,25 +3041,51 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 					pathMatch: null,
 					type: "file" as const,
 				}));
-			chooser.setSuggestions(recent);
+			chooser.setSuggestions([...extra, ...recent]);
 			return;
 		}
 
-		// Phase 1: file name/path (sync, instant)
+		// Parse the live query with the FULL Obsidian Query syntax
+		// (tag:/path:/folder:/file:/property:/[key::value] plus line:/block:/
+		// section:/content:/task:, -exclusion, "quoted phrases", OR grouping).
+		// Metadata clauses are applied synchronously; content clauses
+		// (line/block/section/content/task) are evaluated in the async
+		// content phase so we don't read every file body on each keystroke.
+		const query = parseQuery(trimmed);
+		this.liveQuery = query;
+		this.liveHasContent = requiresContent(query);
+		const pureText = query.groups.every((g) =>
+			g.every((c) => c.kind === "text" && !c.negated)
+		);
+		const textTokens = query.groups
+			.flat()
+			.map((c) => (c.kind === "text" && !c.negated ? c.value.trim() : ""))
+			.filter((v) => v !== "");
+		const fuzzyText = textTokens.join(" ");
+		const fuzzy = fuzzyText
+			? (text: string) =>
+					matchAsSearchResult(this.plugin, text, fuzzyText)
+			: null;
+
 		const fileResults: CmdkResult[] = [];
 
-		for (const file of files) {
-			const nameMatch = matchAsSearchResult(
-				this.plugin,
-				file.basename,
-				query
-			);
-			const pathMatch = matchAsSearchResult(
-				this.plugin,
-				file.path,
-				query
-			);
-			if (nameMatch || pathMatch) {
+		// When the query needs file bodies (content operators), the file list
+		// is produced by the async content phase to avoid false positives.
+		if (!this.liveHasContent) {
+			// Candidate ⑥: remember which files passed the metadata pre-filter
+			// so the (later, batched) heading phase can reuse it instead of
+			// re-evaluating matchMetadata per file.
+			this.passedMeta = new Set<string>();
+			for (const file of files) {
+				// Active chips (presets) always apply
+				if (!this.matchesFilters(file)) continue;
+				// Live metadata clauses (tag/path/folder/name/property) apply
+				if (!this.searchFilter.matchMetadata(file, query)) continue;
+				this.passedMeta.add(file.path);
+				const nameMatch = fuzzy ? fuzzy(file.basename) : null;
+				const pathMatch = fuzzy ? fuzzy(file.path) : null;
+				// Text requirement only applies when there is plain text
+				if (fuzzy && !nameMatch && !pathMatch) continue;
 				fileResults.push({
 					file,
 					nameMatch,
@@ -2308,57 +3104,55 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				b.nameMatch?.score ?? -Infinity,
 				(b.pathMatch?.score ?? -Infinity) * 0.5
 			);
-			return sb - sa;
+			return (
+				sb - sa || a.file.basename.localeCompare(b.file.basename)
+			);
 		});
 
 		// Check if there is an exact name match (for quick-create gating)
-		const queryLower = query.trim().toLowerCase();
+		const queryLower = trimmed.toLowerCase();
 		const hasExactMatch = fileResults.some(
 			(r) => r.file.basename.toLowerCase() === queryLower
 		);
 
-		const resultsToShow = fileResults.slice(0, this.limit);
+		const resultsToShow = fileResults
+			.filter((r) => this.matchesFilters(r.file))
+			.slice(0, this.limit);
 
 		// Append "quick create" option when enabled and no exact match
 		if (
 			this.plugin.settings.cmdkQuickCreate &&
 			!hasExactMatch &&
-			query.trim().length > 0
+			pureText &&
+			trimmed.length > 0
 		) {
 			resultsToShow.push({
 				file: null as any,
 				nameMatch: null,
 				pathMatch: null,
 				type: "create",
-				createQuery: query.trim(),
+				createQuery: trimmed,
 			});
 		}
 
 		// Render file results immediately
-		chooser.setSuggestions(resultsToShow);
+		chooser.setSuggestions([...extra, ...resultsToShow]);
 
-		// Phase 2: heading search — progressive, batched via setTimeout
-		if (query.trim().length >= 2) {
-			this.progressiveHeadingSearch(
-				files,
-				query,
-				chooser,
-				signal
-			);
+		// Phase 2: heading search — progressive, batched via setTimeout.
+		// Headings can't be checked against content operators, so skip this
+		// phase when the query needs file bodies.
+		if (trimmed.length >= 2) {
+			if (fuzzy && !this.liveHasContent)
+				this.progressiveHeadingSearch(files, fuzzy, chooser, signal);
 
 			// Phase 3: content search — progressive, async (reads file content)
-			this.progressiveContentSearch(
-				files,
-				query,
-				chooser,
-				signal
-			);
+			this.progressiveContentSearch(files, query, chooser, signal);
 		}
 	}
 
 	private progressiveHeadingSearch(
 		files: TFile[],
-		query: string,
+		fuzzy: (text: string) => SearchResult | null,
 		chooser: any,
 		signal: AbortSignal
 	) {
@@ -2368,7 +3162,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		const MAX_HEADING_RESULTS = 20;
 
 		const processBatch = () => {
-			if (signal.aborted) return;
+			if (signal.aborted || this.closed) return;
 
 			const end = Math.min(idx + BATCH_SIZE, files.length);
 			for (; idx < end; idx++) {
@@ -2379,12 +3173,15 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				if (!cache?.headings) continue;
 
 				for (const h of cache.headings) {
-					const headingMatch = matchAsSearchResult(
-						this.plugin,
-						h.heading,
-						query
-					);
-					if (headingMatch) {
+					const headingMatch = fuzzy(h.heading);
+					if (
+						headingMatch &&
+						this.matchesFilters(file) &&
+						// Candidate ⑥: reuse the precomputed pass-set instead of
+						// re-running matchMetadata on every heading check.
+						(this.passedMeta?.has(file.path) ??
+							this.searchFilter.matchMetadata(file, this.liveQuery))
+					) {
 						chooser.addSuggestion({
 							file,
 							nameMatch: null,
@@ -2393,11 +3190,11 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 							headingMatch,
 							type: "heading",
 						});
-						added++;
-						if (added >= MAX_HEADING_RESULTS) return;
+							added++;
+							if (added >= MAX_HEADING_RESULTS) return;
+						}
 					}
 				}
-			}
 
 			// More files to process — yield to event loop
 			if (idx < files.length && added < MAX_HEADING_RESULTS) {
@@ -2411,15 +3208,35 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
 	private progressiveContentSearch(
 		files: TFile[],
-		query: string,
+		query: Query,
 		chooser: any,
 		signal: AbortSignal
 	) {
 		const BATCH_SIZE = 50;
 		const MAX_CONTENT_RESULTS = 20;
 		const DURATION_LIMIT = 5; // ms before yielding
-		const simpleSearch = (text: string) =>
-			matchAsSearchResult(this.plugin, text, query);
+
+		const contentMode = this.liveHasContent;
+		// Fuzzy-text mode: a plain free-text search across file bodies.
+		const fuzzyText = contentMode
+			? ""
+			: query.groups
+					.flat()
+					.map((c) =>
+						c.kind === "text" && !c.negated
+							? c.value.trim()
+							: ""
+					)
+					.filter((v) => v !== "")
+					.join(" ");
+		const simpleSearch =
+			!contentMode && fuzzyText
+				? (text: string) =>
+						matchAsSearchResult(this.plugin, text, fuzzyText)
+				: null;
+		if (!contentMode && !simpleSearch) return;
+		if (contentMode && query.groups.length === 0) return;
+
 		let idx = 0;
 		let added = 0;
 
@@ -2441,15 +3258,56 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				const file = files[idx];
 				if (file.extension !== "md") continue;
 
+				// Fast metadata pre-filter (no file read needed).
+				if (!this.searchFilter.matchMetadata(file, query)) continue;
+				if (!contentMode && !this.matchesFilters(file)) continue;
+
 				let text: string;
+				// Candidate ④: read through the plugin-scoped, warm content
+				// cache — shared across every CMDK open, so repeated opens
+				// (and other searchers) almost never re-read file bodies.
+				const cached = this.plugin.contentCache.get(file.path);
 				try {
-					text = await this.app.vault.cachedRead(file);
+					if (cached && cached.mtime === file.stat.mtime) {
+						text = cached.text;
+						// Touch for true LRU: re-insert so the entry moves to
+						// the most-recent position and eviction drops the
+						// least-recently-used file instead of the oldest.
+						this.plugin.contentCache.delete(file.path);
+						this.plugin.contentCache.set(file.path, cached);
+					} else {
+						text = await this.app.vault.cachedRead(file);
+						this.plugin.cacheFileContent(
+							file.path,
+							file.stat.mtime,
+							text
+						);
+					}
 				} catch {
 					continue;
 				}
 
 				if (signal.aborted || this.closed) return;
-				const result = simpleSearch(text);
+				if (contentMode) {
+					// Full query evaluation including content operators.
+					if (!this.searchFilter.matchContent(file, text, query))
+						continue;
+					const lineInfo = this.firstMatchLine(text, query);
+					chooser.addSuggestion({
+						file,
+						nameMatch: null,
+						pathMatch: null,
+						content: lineInfo.text,
+						contentMatch: null,
+						line: lineInfo.line,
+						type: "content",
+					} as CmdkResult);
+					added++;
+					if (added >= MAX_CONTENT_RESULTS) return;
+					continue;
+				}
+
+				const result = simpleSearch!(text);
 				if (!result) continue;
 
 				// Compute line number and context from first match offset
@@ -2467,7 +3325,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				const lineText = text.substring(lineStart, lineEnd).trim();
 
 				// Recompute match on the line for highlight offsets
-				const lineMatch = simpleSearch(lineText);
+				const lineMatch = simpleSearch!(lineText);
 
 				chooser.addSuggestion({
 					file,
@@ -2484,7 +3342,44 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		};
 
 		// Start after heading search has a chance to render
-		setTimeout(processBatch, 50);
+		setTimeout(processBatch, contentMode ? 0 : 50);
+	}
+
+	/** First line in `text` matching any positive content clause value. */
+	private firstMatchLine(
+		text: string,
+		query: Query
+	): { line: number; text: string } {
+		const clauseValue = (c: Clause): string | undefined => {
+			switch (c.kind) {
+				case "content":
+				case "line":
+				case "section":
+				case "block":
+				case "task":
+					return c.value;
+				default:
+					return undefined;
+			}
+		};
+		const vals: string[] = [];
+		for (const g of query.groups) {
+			for (const c of g) {
+				if (c.negated) continue;
+				const v = clauseValue(c);
+				if (v) vals.push(v.toLowerCase());
+			}
+		}
+		const lines = text.split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			const low = lines[i].toLowerCase();
+			if (vals.some((v) => low.includes(v)))
+				return { line: i, text: lines[i].trim() };
+		}
+		for (let i = 0; i < lines.length; i++) {
+			if (lines[i].trim()) return { line: i, text: lines[i].trim() };
+		}
+		return { line: 0, text: "" };
 	}
 
 	renderSuggestion(result: CmdkResult, el: HTMLElement) {
@@ -2506,6 +3401,21 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			setIcon(flair, "plus");
 			return;
 		}
+
+
+
+		if (result.type === "save") {
+			const contentEl = el.createDiv("suggestion-content");
+			const titleEl = contentEl.createDiv("suggestion-title");
+			titleEl.setText(t("saveCurrentTitle"));
+			const noteEl = contentEl.createDiv("suggestion-note");
+			noteEl.setText(this.inputEl.value.trim());
+			const auxEl = el.createDiv("suggestion-aux");
+			const flair = auxEl.createSpan("suggestion-flair");
+			setIcon(flair, "bookmark");
+			return;
+		}
+
 
 		const contentEl = el.createDiv("suggestion-content");
 
@@ -2555,12 +3465,24 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		}
 	}
 
-	onChooseSuggestion(
+	async onChooseSuggestion(
 		result: CmdkResult,
 		evt: MouseEvent | KeyboardEvent
 	) {
 		if (result.type === "create") {
 			this.quickCreateNote(result.createQuery ?? "", evt);
+			return;
+		}
+
+
+
+		if (result.type === "save") {
+			const current = this.inputEl.value.trim();
+			const name = await promptForName(this.app, current);
+			if (name) {
+				this.plugin.addSavedSearch(name, current);
+			}
+			this.close();
 			return;
 		}
 
@@ -2718,6 +3640,11 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		this.searchAbort = null;
 		this.onSelectedChange.cancel();
 		this.hidePreview();
+		super.onClose?.();
+		for (const [ev, h] of this.vaultHandlers) {
+			this.app.vault.off(ev as any, h as any);
+		}
+		this.vaultHandlers = [];
 		this.fileLeaf?.detach();
 		this.fileEmbeddedView?.unload();
 		this.fileLeaf = undefined;

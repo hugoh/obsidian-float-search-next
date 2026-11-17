@@ -87,7 +87,7 @@ test('closing CMDK cancels content results whose cachedRead is already pending',
   modal.onOpen();
   modal.inputEl.value = 'needle';
   modal.updateSuggestions();
-  await h.clock.tick(50);
+  await h.clock.tick(200);
   assert.equal(readStarted, true, 'Exercise cancellation after I/O begins');
   modal.onClose();
   pending.resolve('a matching needle remains in this document');

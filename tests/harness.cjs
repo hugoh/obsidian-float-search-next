@@ -139,7 +139,8 @@ function createHarness() {
   }
   const obsidian = {
     Modal, SuggestModal, TFile,
-    Plugin: class {}, PluginSettingTab: class {},
+    Plugin: class {}, PluginSettingTab: class {}, AbstractInputSuggest: class {}, TFolder: class {},
+    prepareFuzzySearch: (q) => (text) => (String(text).toLowerCase().includes(String(q).toLowerCase()) ? { score: 0, matches: [] } : null),
     Workspace: class {}, WorkspaceLeaf: class {}, WorkspaceContainer: class {},
     debounce(callback, delay) {
       let timer;
@@ -206,7 +207,8 @@ function createHarness() {
       require(id) {
         if (id === 'obsidian') return obsidian;
         if (id === './leafView') return leafModule;
-        if (id === './i18n') return { strings: () => ({}) };
+        if (id === './i18n') return { strings: () => ({}), t: (key) => key };
+        if (id === './searchFilter') return load('searchFilter');
         if (id === './filterBar') return load('filterBar');
         if (id === 'monkey-around') return require('monkey-around');
         throw new Error(`Unexpected dependency: ${id}`);
@@ -225,7 +227,7 @@ function createHarness() {
   }
   const mainLeaf = makeLeaf();
   const app = {
-    vault: { getFiles: () => [], cachedRead: async () => '', getAbstractFileByPath: () => null },
+    vault: { on() {}, off() {}, getAllLoadedFiles: () => [], getFiles: () => [], cachedRead: async () => '', getAbstractFileByPath: () => null },
     metadataCache: { getFileCache: () => null },
     workspace: {
       getMostRecentLeaf: () => mainLeaf,
@@ -239,9 +241,14 @@ function createHarness() {
     settings: {
       showInstructions: false, filterIncludeBases: true, filterIncludeCanvas: true,
       filterStarredOnly: false, filterMatchCase: false, filterUseRegex: false,
-      cmdkQuickCreate: false,
+      cmdkQuickCreate: false, excludeFolders: [], excludeFiles: [], savedSearches: [],
     },
     async saveSettings() {},
+    normalizePath: (p) => String(p).replace(/^\/+|\/+$/g, ''),
+    withExclusion: (q) => q,
+    stripExclusion: (q) => q,
+    contentCache: new Map(),
+    cacheFileContent(path, mtime, text) { this.contentCache.set(path, { mtime, text }); },
   };
   return { ...load('floatSearchIndex'), filters: load('filterBar'), clock, app, plugin,
     mainLeaf, makeLeaf, leafModule, spawned, TFile, ElementStub };

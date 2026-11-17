@@ -67,6 +67,169 @@ You can use search view in modal now.
 
 ---
 
+## Filtering, exclusions and saved searches
+
+### Faster CMDK search
+- The quick-search palette (CMDK) is now debounced (~150ms) and caches file content by path + modification time, so unchanged files are not re-read. This makes repeated and partial typing much more responsive.
+- The main float search no longer runs a duplicate search on open — it applies the query once and only adjusts the caret.
+
+### Exclusions (folders / files)
+- New **Exclusions** section in the plugin settings with two pill inputs:
+  - **Exclude folders**: folders that are skipped in CMDK and the main search.
+  - **Exclude files**: specific files to skip.
+- Instead of typing the path by hand, a **vault-backed picker** filters real folders/files as you type (powered by Obsidian's own vault API) — pick one and it becomes a pill. Click a pill to remove it.
+- Excluded items are filtered from CMDK results and injected as `-path:"folder/"` / `-path:"file"` into the main search query (automatically stripped before saving, so your stored query stays clean).
+
+### Saved searches (presets)
+- New **Saved searches** section in the settings: store a `name + query` pair using any Obsidian search syntax (`tag:#项目`, `[status:: 进行中]`, `path:Notes`, etc.).
+- Each saved search is exposed three ways:
+  1. **CMDK launcher** — open the palette with an empty query to see your presets at the top; pick one to run it immediately.
+  2. **Generated command** — a `Saved search: <name>` command is auto-registered for every preset (usable from the command palette and hotkeys).
+  3. **Save current** — in CMDK, with a non-empty query, choose *"Save current search as preset"*, give it a name, and it is stored on the fly.
+
+---
+
+## 4.4.0 新功能
+
+### 更快的 CMDK 搜索
+- 极速搜索框（CMDK）现已加入约 150ms 防抖，并按「路径 + 修改时间」缓存文件正文，未改动的文件不再重复读取，连续输入与部分输入更跟手。
+- 主浮窗打开时不再重复执行一次搜索——只应用一次查询并调整光标位置。
+
+### 排除（文件夹 / 文件）
+- 插件设置新增「Exclusions」区，含两组胶囊输入：
+  - **排除文件夹**：在 CMDK 与主搜索中跳过的文件夹。
+  - **排除文件**：需跳过的指定文件。
+- 不再手动输入路径，而是用**仓库原生选择器**：输入时实时筛选真实的文件夹/文件（基于 Obsidian 官方 vault 接口），选中即生成胶囊，点一下删除。
+- 被排除项会从 CMDK 结果中滤除，并作为 `-path:"文件夹/"` / `-path:"文件"` 注入主搜索查询（保存前自动剥离，不污染你存储的查询）。
+
+### 预设搜索（Saved searches）
+- 设置页新增「Saved searches」区：用任意 Obsidian 搜索语法（`tag:#项目`、`[status:: 进行中]`、`path:Notes` 等）存储「名称 + 查询」。
+- 每条预设有三种使用入口：
+  1. **CMDK 启动器**——空查询打开极速框时，预设列在顶部，点选即立即执行。
+  2. **自动命令**——每条预设会自动注册一条 `Saved search: <名称>` 命令（可用于命令面板与快捷键）。
+  3. **随手保存**——在 CMDK 中输入非空查询后，选择「Save current search as preset」，起个名字即可当场存为预设。
+
+---
+
+## New in 4.5.0
+
+### Localization (i18n)
+- All plugin UI (settings, prompts, CMDK labels, generated command names) now follows **Obsidian's own language setting**. There is no separate language option — switch Obsidian's language and the plugin follows automatically.
+- Currently ships English and 简体中文.
+
+---
+
+## 4.5.0 新功能
+
+### 多语言（i18n）
+- 插件所有界面（设置、弹窗、CMDK 标签、自动生成的命令名称）现已**跟随 Obsidian 自身的语言设置**，不再单独提供语言开关——切换 Obsidian 语言，插件自动切换。
+- 当前内置英文与简体中文。
+
+---
+
+## 4.6.0 新功能
+
+### 预设搜索 = 筛选芯片（合并）
+- 「预设搜索」与「筛选按钮」已合并为**同一功能**：在设置页「预设搜索」中保存一个名称 + 查询条件（如 `Plugin` → `tag:#Plugin`，`Obsidian` → `path:2-输出/5-软件相关/Obsidian`），它就会作为一枚**芯片**出现在 CMDK 结果列表上方。
+- 点击芯片即在该 CMDK 界面内**就地筛选**结果，不再跳转到原生搜索；再次点击取消激活。可多选（AND 逻辑）。
+- 在 CMDK 输入任意查询后，会出现「保存当前搜索为预设」项，保存后该条件即成为一枚芯片。
+- 命令面板中仍会为每个预设生成一条命令（`预设搜索：{名称}`），运行后直接打开 CMDK 并以该预设作为激活筛选。
+- 预设的查询**直接复用 Obsidian 原生搜索引擎**求值，因此支持**任意 Obsidian 搜索语法**（多标签组合、`-` 排除、`property:`、`line:`、`content:`、全文、路径等），与你在本体搜索里写的内容完全一致。
+
+---
+
+## New in 4.7.0
+
+### Fixed tag filtering for chips (presets)
+- Chip (preset) filters that target tags now resolve directly against Obsidian's **cached metadata** (`metadataCache`), so they match the native search exactly — including:
+  - **Tags with emoji / special characters in the name** (e.g. a preset stored as `📬/笔记` correctly matches the real tag `#📬/笔记`, where the emoji is part of the tag).
+  - **Nested tags** — a filter `#项目` also matches `#项目/子` and deeper levels.
+- Previously tag chips fell back to fuzzy filename matching, so anything beyond a plain `tag:#x` would silently return zero results. Tag queries are now precomputed once into a match set and applied as an exact set membership test, which is also faster for multi-chip (AND) filtering.
+- Non-tag queries (`path:`, `file:`, `name:`, plain text) still use the original lightweight `fileMatchesFilter` path.
+
+### Unified `SearchFilter` module
+All chip / preset matching now lives in a single `SearchFilter` class (`src/searchFilter.ts`). A filter string is split into space-separated **clauses**, each addressing one dimension, AND-ed together. Supported clause types:
+- `tag:项目` / `#项目` — tag (nested-aware, emoji-safe; also matches tags stored in ANY frontmatter property, not just inline `#tag`).
+- `path:Notes` — path prefix.
+- `folder:Notes` — containing folder only.
+- `file:foo` / `name:foo` — filename.
+- `status::进行中` / `[status::进行中]` / `prop:status:进行中` — frontmatter / inline property (value optional → key existence).
+- `line:文字` / `block:块ID` / `section:标题` / `content:正文` / `task:待办` — **content operators** (read the file body; matched in the async content phase).
+- plain text — fuzzy on path, also tried as a tag (presets may omit `#`).
+- `-` prefix negates any clause (`-tag:done`, `-path:Drafts`, `-"some phrase"`).
+- `"quoted phrases"` — exact multi-word text.
+- `OR` — OR between groups (space = AND within a group).
+
+This is the **full Obsidian Query Language**: e.g. `tag:#📬/笔记 path:滴答清单 -tag:归档 OR content:会议纪要`. The float search input parses it **live** — no longer treated as a raw filename fuzzy string. (Saved chips / presets use the same engine.)
+
+Chips are single-select (mutually exclusive): selecting one deactivates any other active chip, and clicking the active chip again clears it. (The planned *collection block* UI that would combine multiple filters at once is still future work.)
+
+---
+
+## 4.7.0 新功能
+
+### 修复芯片（预设）的标签筛选
+- 以标签为目标的芯片筛选现在直接基于 Obsidian 的**缓存元数据**（`metadataCache`）求值，与原生搜索完全一致，支持：
+  - **标签名含 emoji / 特殊字符**（例如预设存为 `📬/笔记` 也能正确命中真实标签 `#📬/笔记`，其中 emoji 是标签名的一部分）。
+  - **嵌套标签** —— 筛选 `#项目` 会同时命中 `#项目/子` 及更深层。
+- 此前标签芯片会退化为模糊文件名匹配，任何非纯 `tag:#x` 的写法都会静默返回 0 结果。现在标签查询会一次性预计算成命中集合，并以精确的集合成员判断应用，多芯片（AND）筛选也更高效。
+- 非标签查询（`path:`、`file:`、`name:`、纯文本）仍走原有的轻量 `fileMatchesFilter` 逻辑。
+
+### 统一的 `SearchFilter` 模块
+所有芯片 / 预设的匹配逻辑现已统一收进 `src/searchFilter.ts` 的 `SearchFilter` 类。一条筛选串会被切成空格分隔的**子句（clause）**，每个子句只对应一个维度，多个子句之间为 AND。支持的子句类型：
+- `tag:项目` / `#项目` —— 标签（支持嵌套、emoji 安全；也匹配存在**任意 frontmatter 属性**里的标签，不限于行内 `#tag`）。
+- `path:Notes` —— 路径前缀。
+- `folder:Notes` —— 仅匹配所在文件夹。
+- `file:foo` / `name:foo` —— 文件名。
+- `status::进行中` / `[status::进行中]` / `prop:status:进行中` —— frontmatter / 行内属性（可只写 key 判存在）。
+- `line:文字` / `block:块ID` / `section:标题` / `content:正文` / `task:待办` —— **内容类算子**（读取正文，在异步内容阶段匹配）。
+- 纯文本 —— 路径模糊匹配，同时尝试当标签（预设可省略 `#`）。
+- `-` 前缀 —— 取反任意子句（`-tag:done`、`-path:Drafts`、`-"某短语"`）。
+- `"引号短语"` —— 多词精确文本。
+- `OR` —— 组间「或」（组内空格为「与」）。
+
+这等同于 **Obsidian 完整 Query 语法**：例如 `tag:#📬/笔记 path:滴答清单 -tag:归档 OR content:会议纪要`。浮窗**输入框**会实时解析——不再被当作一整串文件名模糊串。保存的芯片 / 预设用的是同一套引擎。
+
+芯片为**单选互斥**：选中一枚会取消其它已激活的芯片，再次点击已激活的芯片则取消。 （计划中的、可同时组合多个筛选的**区块（collection block）** UI 仍是后续工作。）
+
+---
+
+## New in 4.8.0
+
+### Saved searches: inline edit & polish
+- **Inline editing** — each saved search row now has an **Edit** button that turns the row into `name` / `query` inputs inline; **Save** commits, **Cancel** discards. No more delete-and-re-create to fix a typo.
+- **Mutually exclusive chips** — in the float search / CMDK filter bar the chips are now single-select: picking one deactivates the others, and clicking the active chip clears it. (See the 4.7.0 note above.)
+- **Right-aligned actions** — the Edit / Delete buttons on each saved-search row now sit on the right edge instead of being centered.
+- **No scroll jump on save** — adding / editing / deleting a saved search now re-renders only the list, so the settings page no longer scrolls back to the top.
+
+### Performance (load & read faster)
+- **Parse each filter once** — `SearchFilter` now memoises parsed queries, so chip / preset matching no longer re-parses the same query for every file (was N×F redundant parses on large vaults).
+- **Chip matching snapshots metadata once** — `buildMatchSets` now reads each file's cached metadata a single time (N lookups) instead of N×F, which was the dominant cost of chip filtering on big vaults.
+- **Warm, plugin-scoped content cache** — the file-body cache is no longer cleared on every CMDK open and is shared across all openings; it is invalidated per-path on vault changes and capped with a simple LRU. Repeated opens almost never re-read bodies.
+- **Cached candidate file set** — the scanned + exclusion-filtered file list is built once and reused across keystrokes (exclusion lists normalised a single time), rebuilt lazily on vault changes.
+- **No duplicate metadata test** — the heading search phase reuses the metadata pass-set computed in the main scan instead of re-evaluating `matchMetadata` per file.
+- **Lazy prototype patches** — the search-view monkeypatches are now installed on first use, not at every startup.
+
+---
+
+## 4.8.0 新功能
+
+### 预设搜索：内联编辑与细节打磨
+- **内联编辑** —— 每条预设后方新增「编辑」按钮，点击后该行就地变为「名称 / 查询」输入框，「保存」提交、「取消」放弃，不必再删了重建来改错别字。
+- **芯片互斥单选** —— 浮窗 / CMDK 筛选栏里的芯片改为单选：选一枚会取消其它已选项，点击已激活的芯片则取消（见上方 4.7.0 说明）。
+- **操作按钮靠右** —— 预设列表每行的「编辑 / 删除」按钮现统一靠右对齐，不再居中。
+- **保存不再回滚** —— 新增 / 编辑 / 删除预设现在只局部重渲染列表，设置页不会跳回顶部。
+
+### 性能（加载更快 / 读取更快）
+- **筛选串只解析一次** —— `SearchFilter` 现在缓存解析结果，芯片 / 预设匹配不再对每个文件重复解析同一条查询（大库下原先是 N×F 次冗余解析）。
+- **芯片匹配只取一次元数据** —— `buildMatchSets` 现在每个文件只读取一次缓存元数据（N 次），而非 N×F 次，这是大库下芯片筛选的主要开销来源。
+- **温热且插件级的正文缓存** —— 正文缓存不再在每次打开 CMDK 时清空，而是跨多次打开共享；按路径在 vault 变更时失效，并用简单 LRU 限容。反复调起几乎不再重读正文。
+- **候选文件集缓存** —— 扫描 + 排除过滤后的文件集只构建一次并在按键间复用（排除项也只归一化一次），vault 变更时惰性重建。
+- **不再重复元数据判定** —— 标题搜索阶段复用主扫描已算出的"通过元数据"集合，不再对每个文件重跑 `matchMetadata`。
+- **原型补丁懒加载** —— 搜索视图的 monkeypatch 改为首次使用时安装，而非每次启动都装。
+
+---
+
 ## Support
 
 If you are enjoying this plugin then please support my work and enthusiasm by buying me a coffee
