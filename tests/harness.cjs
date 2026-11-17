@@ -141,6 +141,7 @@ function createHarness() {
     Modal, SuggestModal, TFile,
     Plugin: class {}, PluginSettingTab: class {}, addIcon() {}, setIcon() {}, normalizePath: (p) => String(p).replace(/^\/+|\/+$/g, '') || '/', AbstractInputSuggest: class {}, TFolder: class {},
     prepareFuzzySearch: (q) => (text) => (String(text).toLowerCase().includes(String(q).toLowerCase()) ? { score: 0, matches: [] } : null),
+    prepareSimpleSearch: (q) => (text) => (String(q).toLowerCase().split(/\s+/).filter(Boolean).every((w) => String(text).toLowerCase().includes(w)) ? { score: 2, matches: [[0, 1]] } : null),
     Workspace: class {}, WorkspaceLeaf: class {}, WorkspaceContainer: class {},
     debounce(callback, delay) {
       let timer;

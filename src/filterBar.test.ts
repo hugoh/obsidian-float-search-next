@@ -4,6 +4,7 @@ import {
   activeFilterCount,
   buildNativeRegexQuery,
   compileQueryRegex,
+  createTextMatcher,
   type FilterHost,
   isFileAllowed,
   matchAsSearchResult,
@@ -218,5 +219,54 @@ describe("resetFilters", () => {
     resetFilters(all.settings);
     expect(all.settings).toEqual(host().settings);
     expect(activeFilterCount(all.settings)).toBe(0);
+  });
+});
+
+describe("createTextMatcher", () => {
+  test("names, paths and headings use the fuzzy matcher by default", () => {
+    expect(createTextMatcher(host(), "world")("Hello World")?.score).toBe(0);
+  });
+
+  test("note bodies use exact word search by default", () => {
+    expect(
+      createTextMatcher(host(), "world", "content")("Hello World")?.score,
+    ).toBe(2);
+  });
+
+  test("match-case and regex modes behave the same for both targets", () => {
+    for (const target of ["name", "content"] as const) {
+      const exact = createTextMatcher(
+        host({ filterMatchCase: true }),
+        "World",
+        target,
+      );
+      expect(exact("Hello World")?.score).toBe(1);
+      expect(exact("Hello world")).toBeNull();
+      const pattern = createTextMatcher(
+        host({ filterUseRegex: true }),
+        "w.rld",
+        target,
+      );
+      expect(pattern("Hello world")?.score).toBe(1);
+    }
+  });
+
+  test("an empty query matches nothing", () => {
+    expect(createTextMatcher(host(), "  ")("anything")).toBeNull();
+    expect(createTextMatcher(host(), "", "content")("anything")).toBeNull();
+  });
+
+  test("an invalid or refused regex matches nothing", () => {
+    const h = host({ filterUseRegex: true });
+    expect(createTextMatcher(h, "(")("a(")).toBeNull();
+    expect(createTextMatcher(h, "^(a+)+$")("aaaa")).toBeNull();
+  });
+
+  test("one matcher can be reused on many texts with the same answers", () => {
+    const matcher = createTextMatcher(host({ filterUseRegex: true }), "n\\d");
+    for (let i = 0; i < 3; i++) {
+      expect(matcher("note n1 here")?.matches).toEqual([[5, 7]]);
+      expect(matcher("no digits")).toBeNull();
+    }
   });
 });

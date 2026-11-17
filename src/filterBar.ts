@@ -4,6 +4,7 @@ import {
   addIcon,
   debounce,
   prepareFuzzySearch,
+  prepareSimpleSearch,
   setIcon,
   TFile,
 } from "obsidian";
@@ -178,35 +179,71 @@ export function bindNativeRegexSearch(
   };
 }
 
+export type MatchTarget = "name" | "content";
+
+/**
+ * Prepare a matcher for one query, so the work of compiling a pattern or
+ * building a searcher is done once, not once per file.
+ *
+ * In the default mode names, paths and headings match fuzzily, while note
+ * bodies match exact words (a fuzzy match over a whole body also accepts near
+ * misses such as `marker17` for `marker7`). Match-case and regex modes are
+ * exact for both.
+ */
+export function createTextMatcher(
+  plugin: FilterHost,
+  query: string,
+  target: MatchTarget = "name",
+): (text: string) => SearchResult | null {
+  if (!query.trim()) return () => null;
+  const { filterUseRegex, filterMatchCase } = plugin.settings;
+
+  if (filterUseRegex) {
+    const re = compileQueryRegex(plugin, query);
+    if (!re) return () => null;
+    // Native search ignores zero-width matches and continues to the next one.
+    const scan = new RegExp(re.source, `${re.flags}g`);
+    return (text) => {
+      const searched = truncateForRegex(text);
+      scan.lastIndex = 0;
+      for (
+        let match = scan.exec(searched);
+        match;
+        match = scan.exec(searched)
+      ) {
+        if (match[0].length) {
+          return {
+            score: 1,
+            matches: [[match.index, match.index + match[0].length]],
+          };
+        }
+        scan.lastIndex++;
+      }
+      return null;
+    };
+  }
+
+  if (filterMatchCase) {
+    return (text) => {
+      const idx = text.indexOf(query);
+      return idx < 0
+        ? null
+        : { score: 1, matches: [[idx, idx + query.length]] };
+    };
+  }
+
+  return target === "content"
+    ? prepareSimpleSearch(query)
+    : prepareFuzzySearch(query);
+}
+
+/** One-off match; prefer createTextMatcher when testing many texts. */
 export function matchAsSearchResult(
   plugin: FilterHost,
   text: string,
   query: string,
 ): SearchResult | null {
-  if (!query.trim()) return null;
-  if (!plugin.settings.filterUseRegex && !plugin.settings.filterMatchCase) {
-    return prepareFuzzySearch(query)(text);
-  }
-  if (plugin.settings.filterUseRegex) {
-    const re = compileQueryRegex(plugin, query);
-    if (!re) return null;
-    // Native search ignores zero-width matches and continues to the next one.
-    const scan = new RegExp(re.source, re.flags + "g");
-    const searched = truncateForRegex(text);
-    for (let match = scan.exec(searched); match; match = scan.exec(searched)) {
-      if (match[0].length) {
-        return {
-          score: 1,
-          matches: [[match.index, match.index + match[0].length]],
-        };
-      }
-      scan.lastIndex++;
-    }
-    return null;
-  }
-  const idx = text.indexOf(query);
-  if (idx < 0) return null;
-  return { score: 1, matches: [[idx, idx + query.length]] };
+  return createTextMatcher(plugin, query)(text);
 }
 
 export function applyNativeResultFilters(

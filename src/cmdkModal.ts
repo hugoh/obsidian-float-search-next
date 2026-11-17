@@ -19,9 +19,9 @@ import {
 import { createExclusionMatcher, normalizePath } from "./exclusions";
 import {
   compileQueryRegex,
+  createTextMatcher,
   getBookmarkedPaths,
   isFileAllowed,
-  matchAsSearchResult,
   mountFilterBar,
 } from "./filterBar";
 import type FloatSearchPlugin from "./floatSearchIndex";
@@ -285,9 +285,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     this.liveHasContent = requiresContent(query);
     const pureText = isPlainText(query);
     const fuzzyText = freeText(query);
-    const fuzzy = fuzzyText
-      ? (text: string) => matchAsSearchResult(this.plugin, text, fuzzyText)
-      : null;
+    const fuzzy = fuzzyText ? createTextMatcher(this.plugin, fuzzyText) : null;
     // A refused pattern would otherwise look like "no results".
     if (
       fuzzyText &&
@@ -442,7 +440,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     const fuzzyText = contentMode ? "" : freeText(query);
     const simpleSearch =
       !contentMode && fuzzyText
-        ? (text: string) => matchAsSearchResult(this.plugin, text, fuzzyText)
+        ? createTextMatcher(this.plugin, fuzzyText, "content")
         : null;
     if (!contentMode && !simpleSearch) return;
     if (contentMode && query.groups.length === 0) return;

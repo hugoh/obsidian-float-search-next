@@ -97,6 +97,7 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 36 | Minimum Obsidian version was only assumed to work | Tested on latest only | e2e also runs on Obsidian 1.5.12 (oldest stable at or above 1.5.7) locally and in CI | e2e |
 | 37 | Traditional Chinese users (`zh-TW`, `zh-HK`) were shown Simplified Chinese | The check was "language starts with zh" | `resolveLocale` separates the two: Traditional falls back to English until someone translates it. Adding a language is documented in `CONTRIBUTING.md`, and tests check every language is complete | `i18n.test.ts` |
 | 38 | The fallback note name "Untitled" was always English | Hard-coded in `safeFileName` | Passed in from the translated `untitled` string | `quickCreate.test.ts` |
+| 39 | Searching note bodies in the default mode also returned near misses (`marker7` matched `marker17`) | One helper used the fuzzy matcher for names and for bodies (introduced with the filter rework; upstream used exact words for bodies) | `createTextMatcher`: fuzzy for names, paths and headings, exact words for bodies; the matcher is also prepared once per query instead of per file | `filterBar.test.ts`, e2e, measured (400 vs 80 hits in 4,000 notes) |
 
 ## Refactors (behaviour unchanged)
 

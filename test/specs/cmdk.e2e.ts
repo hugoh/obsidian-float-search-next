@@ -165,6 +165,14 @@ describe("Quick search (CMDK)", () => {
     expect(await hasResult("Old")).toBe(false);
   });
 
+  it("matches exact words inside notes, not near misses", async () => {
+    const input = await openCmdk();
+    await input.setValue("marker7");
+    await waitForResult("Notes/Seven.md");
+    await browser.pause(800);
+    expect(await hasResult("Seventeen")).toBe(false);
+  });
+
   it("treats only real tags as tags", async () => {
     const input = await openCmdk();
     await input.setValue("tag:fruit");

@@ -10,6 +10,19 @@ const fuzzy = (query: string) => (text: string) => {
 
 void mock.module("obsidian", () => ({
   prepareFuzzySearch: fuzzy,
+  // Exact words, all required: scored 2 so tests can tell it from fuzzy (0) and regex (1).
+  prepareSimpleSearch: (query: string) => (text: string) => {
+    const lower = text.toLowerCase();
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches: [number, number][] = [];
+    for (const word of words) {
+      const index = lower.indexOf(word);
+      if (index < 0) return null;
+      matches.push([index, index + word.length]);
+    }
+    return { score: 2, matches };
+  },
+
   TFile: class {},
   addIcon: () => {},
   setIcon: () => {},
