@@ -656,6 +656,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     const settings = this.plugin.settings;
     const title = safeFileName(
       moment().format(settings.cmdkQuickCreateTitleFormat || "YYYYMMDDHHmmss"),
+      strings().untitled,
     );
     const folder = normalizePath(settings.cmdkQuickCreateFolder);
     if (folder && !this.app.vault.getFolderByPath(folder)) {

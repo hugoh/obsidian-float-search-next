@@ -15,8 +15,8 @@ export function uniqueNotePath(
   }
 }
 
-export function safeFileName(title: string): string {
-  return title.replace(/[\\/:*?"<>|]/g, "-").trim() || "Untitled";
+export function safeFileName(title: string, fallback = "Untitled"): string {
+  return title.replace(/[\\/:*?"<>|]/g, "-").trim() || fallback;
 }
 
 const MAX_NOTE_NAME = 100;

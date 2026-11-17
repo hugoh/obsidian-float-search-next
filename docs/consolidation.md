@@ -96,6 +96,8 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 34 | `block:` and `section:` did not mean what they mean in Obsidian (block id, heading text) | Peingxious's own reading of the operators | Aligned with Obsidian: `line:`, `block:`, `section:` need every term in the same line, block or section; `op:(a b)` groups terms. Blocks and sections are approximated from the note text (paragraphs, list items, headings) | `sameUnit.test.ts`, `searchFilter.test.ts`, e2e |
 | 35 | Filters persist across sessions but nothing showed when one was hiding results | Silent persistence | A marker ("N filters on" with Reset) appears whenever a filter differs from its default | `filterBar.test.ts`, e2e |
 | 36 | Minimum Obsidian version was only assumed to work | Tested on latest only | e2e also runs on Obsidian 1.5.12 (oldest stable at or above 1.5.7) locally and in CI | e2e |
+| 37 | Traditional Chinese users (`zh-TW`, `zh-HK`) were shown Simplified Chinese | The check was "language starts with zh" | `resolveLocale` separates the two: Traditional falls back to English until someone translates it. Adding a language is documented in `CONTRIBUTING.md`, and tests check every language is complete | `i18n.test.ts` |
+| 38 | The fallback note name "Untitled" was always English | Hard-coded in `safeFileName` | Passed in from the translated `untitled` string | `quickCreate.test.ts` |
 
 ## Refactors (behaviour unchanged)
 

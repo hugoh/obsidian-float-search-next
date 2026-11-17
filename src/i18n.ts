@@ -2,6 +2,23 @@ import { getLanguage, requireApiVersion } from "obsidian";
 
 export type Locale = "en" | "zh";
 
+/**
+ * Maps an Obsidian language code (`en`, `zh`, `zh-TW`, `ja`, ...) to a bundled
+ * translation. Traditional Chinese (`zh-TW`, `zh-HK`, `zh-MO`, `zh-Hant`) is not
+ * translated yet, so it gets English rather than Simplified Chinese. To add a
+ * language, see "Adding a language" in CONTRIBUTING.md.
+ */
+export function resolveLocale(lang: string): Locale {
+  const parts = lang.toLowerCase().split(/[-_]/);
+  if (parts[0] === "zh") {
+    const traditional = parts.some((part) =>
+      ["tw", "hk", "mo", "hant"].includes(part),
+    );
+    return traditional ? "en" : "zh";
+  }
+  return "en";
+}
+
 export function getLocale(): Locale {
   let lang = "";
   try {
@@ -15,7 +32,7 @@ export function getLocale(): Locale {
     lang =
       window.localStorage.getItem("language") || navigator.language || "en";
   }
-  return lang.toLowerCase().startsWith("zh") ? "zh" : "en";
+  return resolveLocale(lang);
 }
 
 type ViewTypeKey = "modal" | "sidebar" | "split" | "tab" | "window";
@@ -46,6 +63,7 @@ export interface Strings {
   doubleTapInterval: string;
   doubleTapIntervalDesc: string;
   autoPreview: string;
+  untitled: string;
   filtersActive: (count: number) => string;
   filtersReset: string;
   regexRejected: string;
@@ -152,6 +170,7 @@ const EN: Strings = {
   filtersActive: (count) =>
     count === 1 ? "1 filter on" : `${count} filters on`,
   filtersReset: "Reset",
+  untitled: "Untitled",
   autoPreview: "Preview results automatically",
   autoPreviewDesc:
     "Render the selected note beside the results. A preview runs other plugins' code blocks (for example Dataview or Templater), so turn this off if you search vaults you do not trust; press Tab to preview on demand.",
@@ -264,6 +283,7 @@ const ZH: Strings = {
   regexRejected: "该正则表达式无效，或过于复杂而无法安全运行。",
   filtersActive: (count) => `已启用 ${count} 个筛选`,
   filtersReset: "重置",
+  untitled: "未命名",
   autoPreview: "自动预览结果",
   autoPreviewDesc:
     "在结果旁渲染选中的笔记。预览会运行其他插件的代码块（如 Dataview、Templater），如果搜索不可信的库请关闭；关闭后按 Tab 手动预览。",
@@ -370,6 +390,9 @@ const ZH: Strings = {
   saveCurrentTitle: "保存当前搜索为预设",
 };
 
+/** Every bundled translation, keyed by locale. */
+export const TRANSLATIONS: Record<Locale, Strings> = { en: EN, zh: ZH };
+
 export function strings(): Strings {
-  return getLocale() === "zh" ? ZH : EN;
+  return TRANSLATIONS[getLocale()];
 }

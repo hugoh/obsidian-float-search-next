@@ -43,6 +43,11 @@ describe("safeFileName", () => {
   test("never returns an empty name", () => {
     expect(safeFileName("   ")).toBe("Untitled");
   });
+
+  test("uses the given fallback, so the name can be localised", () => {
+    expect(safeFileName("   ", "未命名")).toBe("未命名");
+    expect(safeFileName("///", "未命名")).toBe("---");
+  });
 });
 
 describe("noteNameFromText", () => {

@@ -105,7 +105,7 @@ Everything below is in addition to the usage described above.
 
 ### Languages and settings
 
-- The UI follows Obsidian's language (English and 简体中文). Settings are organised in tabs: General, Quick Search, Quick Create and Filters.
+- The UI follows Obsidian's language: English and 简体中文 are included; Traditional Chinese and other languages show English. Translations are welcome (see `CONTRIBUTING.md`). Settings are organised in tabs: General, Quick Search, Quick Create and Filters.
 
 ### Fixes
 
