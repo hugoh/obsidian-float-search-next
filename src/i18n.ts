@@ -147,7 +147,8 @@ const EN: Strings = {
   quickSearchTriggerDesc:
     "Double-tap this key to open the quick search modal (CMDK).",
   doubleTapInterval: "Double-tap interval (ms)",
-  regexRejected: "This regular expression is invalid or too complex to run safely.",
+  regexRejected:
+    "This regular expression is invalid or too complex to run safely.",
   autoPreview: "Preview results automatically",
   autoPreviewDesc:
     "Render the selected note beside the results. A preview runs other plugins' code blocks (for example Dataview or Templater), so turn this off if you search vaults you do not trust; press Tab to preview on demand.",

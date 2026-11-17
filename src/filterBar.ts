@@ -193,8 +193,7 @@ export function matchAsSearchResult(
     // Native search ignores zero-width matches and continues to the next one.
     const scan = new RegExp(re.source, re.flags + "g");
     const searched = truncateForRegex(text);
-    let match: RegExpExecArray | null;
-    while ((match = scan.exec(searched))) {
+    for (let match = scan.exec(searched); match; match = scan.exec(searched)) {
       if (match[0].length) {
         return {
           score: 1,
@@ -299,7 +298,9 @@ export function mountFilterBar(
     }
     btn.onclick = () => {
       plugin.settings.filterStarredOnly = starredOnly;
-      seg.querySelectorAll("button").forEach((b) => b.removeClass("is-active"));
+      seg.querySelectorAll("button").forEach((b) => {
+        b.removeClass("is-active");
+      });
       btn.addClass("is-active");
       void persist();
     };

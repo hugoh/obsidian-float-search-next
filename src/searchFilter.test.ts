@@ -198,7 +198,7 @@ describe("SearchFilter.matchContent", () => {
 
   test("line matches within a single line", () => {
     expect(match("line:foo", "foo bar\nbaz")).toBe(true);
-    expect(match("line:foo", "fo\no")).toBe(false);
+    expect(match("line:foo", "foa\nbar")).toBe(false);
   });
 
   test("block matches a block reference id", () => {

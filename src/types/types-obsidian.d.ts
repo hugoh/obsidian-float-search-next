@@ -135,7 +135,10 @@ declare module "obsidian" {
     focusedItem: SearchResultItem | null;
     setFocusedItem(item: SearchResultItem | null | undefined): void;
     resultDomLookup: Map<TFile, SearchResultItem>;
-    vChildren?: { children?: SearchResultItem[]; _children?: SearchResultItem[] };
+    vChildren?: {
+      children?: SearchResultItem[];
+      _children?: SearchResultItem[];
+    };
     children?: SearchResultItem[];
     stopLoader(): void;
   }
@@ -157,8 +160,8 @@ declare module "obsidian" {
     removeChild(leaf: WorkspaceLeaf, resize?: boolean): void;
 
     containerEl: HTMLElement;
-    children: any;
-    parent: any;
+    children: WorkspaceItem[];
+    parent: WorkspaceParent | null;
   }
 
   interface MarkdownEditView {
@@ -174,6 +177,8 @@ declare module "obsidian" {
   }
 
   interface WorkspaceLeaf {
+    rebuildView(): void;
+
     openLinkText(
       linkText: string,
       path: string,
@@ -218,7 +223,7 @@ declare module "obsidian" {
     onLayoutChange(): void; // tell Obsidian leaves have been added/removed/etc.
     activeLeafEvents(): void;
 
-    floatingSplit: any;
+    floatingSplit: (WorkspaceSplit & { children: WorkspaceContainer[] }) | null;
 
     pushUndoHistory(leaf: WorkspaceLeaf, id: string, e: unknown): void;
   }

@@ -1,4 +1,5 @@
 import { mock } from "bun:test";
+import { testLanguage } from "./test-language";
 
 const fuzzy = (query: string) => (text: string) => {
   const index = text.toLowerCase().indexOf(query.toLowerCase());
@@ -7,7 +8,7 @@ const fuzzy = (query: string) => (text: string) => {
     : { score: 0, matches: [[index, index + query.length]] };
 };
 
-mock.module("obsidian", () => ({
+void mock.module("obsidian", () => ({
   prepareFuzzySearch: fuzzy,
   TFile: class {},
   addIcon: () => {},
@@ -34,8 +35,7 @@ mock.module("obsidian", () => ({
       .replace(/\\/g, "/")
       .replace(/\/+/g, "/")
       .replace(/^\/|\/$/g, "") || "/",
-  getLanguage: () =>
-    (globalThis as { testLanguage?: string }).testLanguage ?? "en",
+  getLanguage: () => testLanguage.current ?? "en",
   requireApiVersion: () => true,
   debounce: (fn: () => void) => fn,
 }));

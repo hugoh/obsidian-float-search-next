@@ -6,7 +6,7 @@ export async function waitForPlugin() {
   await browser.waitUntil(
     async () =>
       browser.executeObsidian(({ app }, id) => {
-        const plugin = (app as any).plugins.plugins[id];
+        const plugin = app.plugins.plugins[id];
         return Boolean(plugin?.settings);
       }, PLUGIN_ID),
     { timeoutMsg: "the plugin never finished loading" },
@@ -17,8 +17,7 @@ export async function openCmdk(initialFilters?: string[]) {
   await waitForPlugin();
   await browser.executeObsidian(
     ({ app }, id, filters) => {
-      // biome-ignore lint: reaching into the plugin registry for the test
-      const plugin = (app as any).plugins.plugins[id];
+      const plugin = app.plugins.plugins[id];
       plugin.openCmdkModal(filters);
     },
     PLUGIN_ID,
@@ -33,7 +32,7 @@ export async function updateSettings(patch: Record<string, unknown>) {
   await waitForPlugin();
   await browser.executeObsidian(
     ({ app }, id, values) => {
-      const plugin = (app as any).plugins.plugins[id];
+      const plugin = app.plugins.plugins[id];
       Object.assign(plugin.settings, values);
     },
     PLUGIN_ID,

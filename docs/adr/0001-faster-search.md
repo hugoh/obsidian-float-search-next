@@ -13,12 +13,14 @@
 ## Decision
 
 **CMDK 极速框**
+
 1. 输入防抖（约 150ms）后再触发 `updateSuggestions`。
 2. 文件内容缓存：首次 `cachedRead` 后按 `file.path` 缓存正文；监听 `vault` 的 `modify`/`rename`/`delete` 事件使对应缓存失效，跨次查询复用。
 3. 维持"仅 query.length ≥ 2 才扫描正文"的门控（已有）。
 4. 遵守 ADR-0002 的排除项，缩小扫描文件集。
 
 **主浮窗**
+
 5. 优化打开/重建路径：避免重复 `setViewState`/`rebuildView`；若已存在 search leaf 则复用而非重建；`patchSearch` 的去重逻辑确保只 patch 一次。
 
 ## Consequences

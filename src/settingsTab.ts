@@ -4,15 +4,15 @@ import {
   PluginSettingTab,
   prepareFuzzySearch,
   Setting,
-  TFile,
   type SettingDefinitionItem,
   type TextComponent,
+  TFile,
   TFolder,
 } from "obsidian";
 import type FloatSearchPlugin from "./floatSearchIndex";
 import { strings } from "./i18n";
-import { DOUBLE_TAP_RANGE } from "./settings";
 import type { CmdkTriggerKey, SearchType } from "./settings";
+import { DOUBLE_TAP_RANGE } from "./settings";
 
 const triggerKeyOptions = (): Record<CmdkTriggerKey, string> => {
   const s = strings();
@@ -30,8 +30,7 @@ type SettingsTabId = "general" | "quick-search" | "quick-create" | "filters";
 function buildPillList(
   container: HTMLElement,
   items: string[],
-    onRemove: (index: number) => void | Promise<void>,
-
+  onRemove: (index: number) => void | Promise<void>,
 ) {
   const wrap = container.createDiv({ cls: "float-search-pill-list" });
   wrap.empty();
@@ -82,7 +81,7 @@ class PathSuggest extends AbstractInputSuggest<TFolder | TFile> {
   }
 
   selectSuggestion(value: TFolder | TFile) {
-        void this.onPick(value.path);
+    void this.onPick(value.path);
     this.inputEl.value = "";
     this.close();
   }
@@ -101,7 +100,7 @@ export class FloatSearchSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-    /**
+  /**
    * Describes the plain settings for Obsidian's settings search (1.13+).
    * The tab itself is still drawn by display(), which also handles the
    * exclusion pickers and the saved-search editor.
@@ -128,7 +127,10 @@ export class FloatSearchSettingTab extends PluginSettingTab {
               },
             },
           },
-          { name: s.showFilePath, control: { type: "toggle", key: "showFilePath" } },
+          {
+            name: s.showFilePath,
+            control: { type: "toggle", key: "showFilePath" },
+          },
           {
             name: s.showInstructions,
             control: { type: "toggle", key: "showInstructions" },

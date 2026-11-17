@@ -1,0 +1,7 @@
+# Prose is not hard-wrapped (several documents are Chinese/English), and the
+# README keeps the upstream badge and button markup.
+[global]
+disable = ["MD013", "MD036"]
+
+[MD033]
+allowed-elements = ["a", "img"]

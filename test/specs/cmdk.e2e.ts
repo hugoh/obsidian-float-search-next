@@ -41,7 +41,9 @@ describe("Quick search (CMDK)", () => {
     await waitForResult("Pineapple");
     // The first row is "save this search"; move onto a note.
     await browser.keys("ArrowDown");
-    await browser.$(".float-search-cmdk-expanded").waitForExist({ timeout: 10_000 });
+    await browser
+      .$(".float-search-cmdk-expanded")
+      .waitForExist({ timeout: 10_000 });
   });
 
   it("only previews on Tab when automatic previews are off", async () => {
@@ -51,10 +53,14 @@ describe("Quick search (CMDK)", () => {
     await waitForResult("Pineapple");
     await browser.keys("ArrowDown");
     await browser.pause(800);
-    expect(await browser.$(".float-search-cmdk-expanded").isExisting()).toBe(false);
+    expect(await browser.$(".float-search-cmdk-expanded").isExisting()).toBe(
+      false,
+    );
 
     await browser.keys("Tab");
-    await browser.$(".float-search-cmdk-expanded").waitForExist({ timeout: 10_000 });
+    await browser
+      .$(".float-search-cmdk-expanded")
+      .waitForExist({ timeout: 10_000 });
     await updateSettings({ cmdkAutoPreview: true });
   });
 
@@ -163,8 +169,12 @@ describe("Quick search (CMDK)", () => {
     await updateSettings({ filterUseRegex: true });
     const input = await openCmdk();
     await input.setValue("^(a+)+$");
-    await browser.$(".float-search-cmdk-notice").waitForExist({ timeout: 10_000 });
-    expect(await browser.$(".float-search-cmdk-notice").getText()).toContain("too complex");
+    await browser
+      .$(".float-search-cmdk-notice")
+      .waitForExist({ timeout: 10_000 });
+    expect(await browser.$(".float-search-cmdk-notice").getText()).toContain(
+      "too complex",
+    );
   });
 
   it("shows quick-create when nothing matches", async () => {

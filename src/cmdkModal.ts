@@ -1,3 +1,4 @@
+import type { EventRef, SuggestChooser } from "obsidian";
 import {
   debounce,
   Keymap,
@@ -17,13 +18,12 @@ import {
 } from "./cmdkResult";
 import { createExclusionMatcher, normalizePath } from "./exclusions";
 import {
+  compileQueryRegex,
   getBookmarkedPaths,
   isFileAllowed,
   matchAsSearchResult,
   mountFilterBar,
-  compileQueryRegex,
 } from "./filterBar";
-import type { EventRef, SuggestChooser } from "obsidian";
 import type FloatSearchPlugin from "./floatSearchIndex";
 import { strings } from "./i18n";
 import { LatestQueue } from "./latestQueue";
@@ -92,7 +92,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
   onOpen() {
     this.closed = false;
-        void super.onOpen();
+    void super.onOpen();
 
     this.isComposing = false;
     // Tab previews the selection on demand; Shift+Tab closes the preview.
@@ -222,7 +222,8 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
   private runSearch() {
     // Cancel previous in-flight search
     this.searchAbort?.abort();
-    const abort = (this.searchAbort = new AbortController());
+    const abort = new AbortController();
+    this.searchAbort = abort;
     const { signal } = abort;
     this.passedMeta = null;
 
@@ -295,7 +296,6 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     ) {
       extra.push({ type: "notice", message: strings().regexRejected });
     }
-
 
     const fileResults: FileResult[] = [];
 

@@ -25,6 +25,7 @@ provenance record.
 | ADRs in `docs/adr/` | Peingxious | Design rationale for the three features above. |
 
 Not taken:
+
 - [smilingpoplar/Obsidian-Float-Search](https://github.com/smilingpoplar/Obsidian-Float-Search):
   its scroll-to-top change is superseded by upstream's preview scroll-to-position,
   and its URI fix deletes `.suggestion-container` from the DOM after a 10ms timer.
@@ -73,13 +74,17 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 14 | `obsidian://fs` accepted any `viewType` | Cast without validation | Whitelisted via `parseViewType`, falling back to the modal | `settings.test.ts`, e2e |
 | 15 | Module-level `activePlugin` outlived the plugin | Global used by a free function | Now a plugin method; seven copies of "open modal or leaf" became `openSearch()` | e2e |
 | 16 | `tag:project` matched notes whose *other* properties contained "project" | Hand-rolled tag search treated any frontmatter string as a tag | Uses Obsidian's `getAllTags` (inline tags and the `tags` property), case-insensitive, nested-aware | `searchFilter.test.ts`, e2e |
-| 17 | Quick-create threw on a same-name note and its title format only knew 7 tokens | `vault.create` without a collision check; hand-rolled `formatTimestamp` | `uniqueNotePath` appends ` 1`, ` 2`...; titles use Obsidian's `moment` (literal text in `[brackets]`) and are made filename-safe | `quickCreate.test.ts`, e2e |
+| 17 | Quick-create threw on a same-name note and its title format only knew 7 tokens | `vault.create` without a collision check; hand-rolled `formatTimestamp` | `uniqueNotePath` appends `1`, `2`...; titles use Obsidian's `moment` (literal text in `[brackets]`) and are made filename-safe | `quickCreate.test.ts`, e2e |
 | 18 | Double-tap shortcut did nothing in popout windows | Listeners were attached to the main `document` only | Attached per window (`window-open`) | e2e (main window) |
 | 19 | `innerHTML` used for the filter icons | Inline SVG strings | Registered with `addIcon` and rendered with `setIcon` | e2e |
 | 20 | Content cache could grow without a byte limit and duplicated its LRU logic in the modal | Count-only cap | `ContentCache` (entries and bytes, LRU, cleared on unload), read through `plugin.readContent` | `contentCache.test.ts` |
 | 21 | Quick-search previews rendered notes automatically, which runs other plugins' code blocks (Dataview, Templater) | By design, undocumented | New setting *Preview results automatically* (default on, documented). Off means preview on `Tab` only (`Shift+Tab` closes). | `settings.test.ts`, e2e |
 | 22 | Exclusion setting suggested protection (placeholder `secrets.md`) it does not provide | Wording | Renamed to "Hide from results", examples changed, description and README say it is a convenience filter, not a privacy control | docs |
 | 23 | A refused (unsafe or invalid) regex looked like "no results" | Silent fallback | Quick search shows a notice row explaining why | `cmdkResult.test.ts`, e2e |
+| 24 | Lint backlog: 446 `eslint-plugin-obsidianmd` problems (mostly untyped Obsidian internals) | Code reached into Obsidian internals through `any` | Internals are typed (`types-obsidian.d.ts`: search result DOM, suggest chooser, drag manager, floating split) and `strictBindCallApply` is on; patches use `window` timers, `activeDocument`, explicit promise handling and `monkey-around` for restoration. `eslint --max-warnings 0 .` now passes | `bun run lint`, CI |
+| 25 | Native-modal Tab-preview and auto-preview duplicated item-to-target logic | Copy of the same branch | One `previewItem` | regression tests |
+| 26 | The open-search-view command depended on `leaf.parentSplit.parent` (undeclared, nullable) | Private-structure access | `getContainer()` / `getRoot()` in `openSearchView` | e2e |
+| 27 | Plain settings were invisible to Obsidian's settings search (1.13+) | Imperative tab only | `getSettingDefinitions()` describes them (the tab itself is still drawn by `display()`) | lint rule, manual |
 
 ## Refactors (behaviour unchanged)
 
@@ -93,7 +98,6 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 - Dead code removed: `isFileExcluded`, `textMatches`, `openSearchWithQuery`,
   `patchedDomChildren`, the `normalizePath` wrapper methods, the legacy
   `filterButtons` migration.
-
 - `floatSearchIndex.ts` (3,300 lines) was split into the plugin (about 1,370),
   `settingsTab.ts`, `nativeModal.ts`, `cmdkModal.ts` and `namePrompt.ts`.
 
@@ -110,6 +114,17 @@ Each entry: what was wrong, why, the fix, and what guards it now.
   a heading text respectively; Obsidian's native `block:` / `section:` mean "terms
   in the same block / section". The native search view is unaffected.
 
+## Tooling decisions
+
+- `minAppVersion` is **1.5.7** (was 1.2.0): the code uses `AbstractInputSuggest` (1.4.10)
+  and `Vault.getFolderByPath` (1.5.7).
+- The legacy vm-based regression suite in `tests/` (plain CommonJS stubs) is excluded
+  from typed linting; everything else, including the unit and e2e tests, is linted.
+- Package manager is bun and tools are pinned with mise (copied from Search Jump).
+  Releases go through release-please and need the GitHub App secrets described in
+  `CONTRIBUTING.md`.
+- `main.js` is allow-listed in gitleaks (generated bundle, a tokenizer table looked like a key).
+
 ## Accepted risks
 
 - Regexes with overlapping alternations (for example `(a|aa)+`) are not detected by
@@ -122,4 +137,3 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 Tracked from the code review; move a row to the fixes table when done.
 
 - The two modals still have separate preview rendering (they differ in layout and focus handling).
-- Lint backlog (`eslint-plugin-obsidianmd`).

@@ -4,3 +4,7 @@ useDefault = true
 [[allowlists]]
 description = "Downloaded Obsidian builds used by the e2e tests"
 paths = ['''^\.obsidian-cache/''']
+
+[[allowlists]]
+description = "Generated bundle (gitignored build output)"
+paths = ['''^main\.js$''']

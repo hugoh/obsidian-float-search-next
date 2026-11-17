@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { getLocale, strings } from "./i18n";
+import { testLanguage } from "./test-language";
 
 const withLanguage = <T>(language: string, run: () => T): T => {
-  const scope = globalThis as { testLanguage?: string };
-  scope.testLanguage = language;
+  testLanguage.current = language;
   try {
     return run();
   } finally {
-    delete scope.testLanguage;
+    testLanguage.current = undefined;
   }
 };
 

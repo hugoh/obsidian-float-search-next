@@ -1,6 +1,7 @@
 import { around } from "monkey-around";
 import {
   addIcon,
+  type DragManager,
   debounce,
   Editor,
   ExtraButtonComponent,
@@ -11,10 +12,13 @@ import {
   type PaneType,
   Plugin,
   requireApiVersion,
+  type SearchResultDom,
+  type SearchView,
   Setting,
   setIcon,
   type TAbstractFile,
   TFile,
+  View,
   Workspace,
   WorkspaceContainer,
   type WorkspaceItem,
@@ -68,6 +72,49 @@ const allViews: viewType[] = [
     icon: "app-window",
   },
 ];
+
+interface CanvasNode {
+  id: string;
+  text?: string;
+}
+
+/** The slice of a Canvas view used to select the matched card in a preview. */
+interface CanvasLeafView {
+  canvas?: {
+    data: { nodes?: CanvasNode[] };
+    nodes: Map<string, CanvasNode>;
+    selectOnly(node: CanvasNode): void;
+    zoomToSelection(): void;
+  };
+}
+
+type SearchViewState = Record<string, unknown> & {
+  query?: unknown;
+  triggerBySelf?: boolean;
+};
+
+/** Methods of the native search view that Obsidian does not declare. */
+interface SearchViewPrototype {
+  onOpen(): unknown;
+  setExplainSearch(value: boolean): void;
+  setCollapseAll(value: boolean): void;
+  setExtraContext(value: boolean): void;
+  setMatchingCase(value: boolean): void;
+  setSortOrder(value: string): void;
+  setQuery(value: string): void;
+  setState(state: SearchViewState, eState: unknown): unknown;
+}
+
+/** The current (leaf, params) form of Workspace.setActiveLeaf. */
+interface ActivatableWorkspace {
+  setActiveLeaf(leaf: WorkspaceLeaf, params?: { focus?: boolean }): void;
+}
+
+/** Editor methods Obsidian's search addon calls but does not declare. */
+interface HighlightingEditor {
+  removeHighlights?: (...args: unknown[]) => void;
+  hasHighlight?: (...args: unknown[]) => boolean;
+}
 
 export default class FloatSearchPlugin extends Plugin {
   settings: FloatSearchSettings;
@@ -204,35 +251,33 @@ export default class FloatSearchPlugin extends Plugin {
   // both methods defensively so the embedded preview can never crash Obsidian
   // — when the field is absent there are simply no highlights to manage.
   private patchEditorHighlights() {
-    const proto = Editor.prototype as any;
-    const uninstallers: Array<() => void> = [];
-    for (const name of ["removeHighlights", "hasHighlight"] as const) {
-      const orig = proto[name];
-      if (!orig || orig.__fsPatched) continue;
-      const wrapped = function (...args: any[]) {
-        try {
-          return orig.apply(this, args);
-        } catch (e) {
-          if (
-            e instanceof RangeError &&
-            /Field is not present in this state/.test(e.message)
-          ) {
-            return name === "hasHighlight" ? false : undefined;
+    const swallowMissingField =
+      <R>(fallback: R) =>
+      (original: (...args: unknown[]) => R) =>
+        function (this: unknown, ...args: unknown[]): R {
+          try {
+            return original.apply(this, args);
+          } catch (e) {
+            if (
+              e instanceof RangeError &&
+              /Field is not present in this state/.test(e.message)
+            ) {
+              return fallback;
+            }
+            throw e;
           }
-          throw e;
-        }
-      };
-      wrapped.__fsPatched = true;
-      proto[name] = wrapped;
-      // Restore the original method on plugin unload so we don't leave a
-      // permanent patch on Editor.prototype for every editor in the app.
-      uninstallers.push(() => {
-        proto[name] = orig;
-      });
-    }
-    if (uninstallers.length) {
-      this.register(() => uninstallers.forEach((u) => u()));
-    }
+        };
+    const proto = Editor.prototype as unknown as HighlightingEditor;
+    this.register(
+      around(proto, {
+        ...(proto.removeHighlights && {
+          removeHighlights: swallowMissingField<void>(undefined),
+        }),
+        ...(proto.hasHighlight && {
+          hasHighlight: swallowMissingField(false),
+        }),
+      }),
+    );
   }
 
   registerDoubleKeyHandler() {
@@ -265,7 +310,12 @@ export default class FloatSearchPlugin extends Plugin {
       });
     };
 
-    listen(document);
+    listen(activeDocument);
+    this.registerEvent(
+      this.app.workspace.on("window-open", () =>
+        this.updateFilePathVisibility(),
+      ),
+    );
     // Popout windows have their own document.
     this.registerEvent(
       this.app.workspace.on("window-open", (_workspaceWindow, win) =>
@@ -285,7 +335,9 @@ export default class FloatSearchPlugin extends Plugin {
 
   updateFilePathVisibility() {
     const { showFilePath } = this.settings;
-    document.body.toggleClass("show-file-path", showFilePath);
+    for (const win of EmbeddedView.activeWindows(this)) {
+      win.document.body.toggleClass("show-file-path", showFilePath);
+    }
   }
 
   changeFilePathVisibility() {
@@ -417,15 +469,14 @@ export default class FloatSearchPlugin extends Plugin {
   patchWorkspace() {
     let layoutChanging = false;
     // Keep the plugin receiver across native method wrappers.
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the wrappers below need the plugin, but `this` is the patched object
     const self = this;
     const uninstaller = around(Workspace.prototype, {
       getLeaf: (next) =>
-        function (...args: Parameters<Workspace["getLeaf"]>) {
-          const activeLeaf = (this as Workspace).activeLeaf;
+        function (this: Workspace, ...args: Parameters<Workspace["getLeaf"]>) {
+          const activeLeaf = self.app.workspace.getActiveViewOfType(View)?.leaf;
           if (activeLeaf?.parent) {
-            const fsCtnEl = (activeLeaf.parent.containerEl as HTMLElement)
-              .parentElement;
+            const fsCtnEl = activeLeaf.parent.containerEl.parentElement;
             if (fsCtnEl?.hasClass("fs-content")) {
               if (activeLeaf.view.getViewType() === "markdown") {
                 return activeLeaf;
@@ -434,10 +485,9 @@ export default class FloatSearchPlugin extends Plugin {
               const newLeaf = self.app.workspace.getMostRecentLeaf();
 
               if (newLeaf) {
-                this.setActiveLeaf(newLeaf);
+                this.setActiveLeaf(newLeaf, {});
               }
             }
-            return next.apply(this, args);
           }
           return next.apply(this, args);
         },
@@ -459,7 +509,7 @@ export default class FloatSearchPlugin extends Plugin {
           this: Workspace,
           ...args: unknown[]
         ) => boolean | void;
-        return function (arg1: unknown, arg2: unknown) {
+        return function (this: Workspace, arg1: unknown, arg2: unknown) {
           // Fast exit if desired leaf found
           if (old.call(this, arg1, arg2)) return true;
 
@@ -492,20 +542,6 @@ export default class FloatSearchPlugin extends Plugin {
           return false;
         };
       },
-      setActiveLeaf(native) {
-        const old = native as (
-          this: Workspace,
-          leaf: WorkspaceLeaf,
-          params?: { focus?: boolean },
-        ) => void;
-        return function (leaf: WorkspaceLeaf, params?: { focus?: boolean }) {
-          if (isEmbeddedLeaf(leaf)) {
-            old.call(this, leaf, params);
-            leaf.activeTime = 1700000000000;
-          }
-                    return old.call(this, leaf, params);
-        } as typeof native;
-      },
       pushUndoHistory(old) {
         return function (leaf: WorkspaceLeaf, id: string, ...args: unknown[]) {
           const viewState = leaf.getViewState();
@@ -517,26 +553,48 @@ export default class FloatSearchPlugin extends Plugin {
       },
     });
     this.register(uninstaller);
+    this.register(
+      around(Workspace.prototype as unknown as ActivatableWorkspace, {
+        setActiveLeaf(old) {
+          return function (
+            this: Workspace,
+            leaf: WorkspaceLeaf,
+            params?: { focus?: boolean },
+          ) {
+            if (isEmbeddedLeaf(leaf)) {
+              old.call(this, leaf, params);
+              leaf.activeTime = 1700000000000;
+            }
+            return old.call(this, leaf, params);
+          };
+        },
+      }),
+    );
   }
 
   // Used for patch workspaceleaf pinned behaviors
   patchWorkspaceLeaf() {
+    const { app } = this;
     this.register(
       around(WorkspaceLeaf.prototype, {
         getRoot(old) {
-          return function () {
+          return function (this: WorkspaceLeaf) {
             const top = old.call(this);
             return top?.getRoot === this.getRoot ? top : top?.getRoot();
           };
         },
         setPinned(old) {
-          return function (pinned: boolean) {
+          return function (this: WorkspaceLeaf, pinned: boolean) {
             old.call(this, pinned);
             if (isEmbeddedLeaf(this) && !pinned) this.setPinned(true);
           };
         },
         openFile(old) {
-          return function (file: TFile, openState?: OpenViewState) {
+          return function (
+            this: WorkspaceLeaf,
+            file: TFile,
+            openState?: OpenViewState,
+          ) {
             if (isEmbeddedLeaf(this)) {
               window.setTimeout(
                 around(Workspace.prototype, {
@@ -551,8 +609,7 @@ export default class FloatSearchPlugin extends Plugin {
                 }),
                 1,
               );
-              const recentFiles =
-                this.app.plugins.plugins["recent-files-obsidian"];
+              const recentFiles = app.plugins.plugins["recent-files-obsidian"];
               if (recentFiles) {
                 window.setTimeout(
                   around(recentFiles, {
@@ -572,20 +629,21 @@ export default class FloatSearchPlugin extends Plugin {
             window.setTimeout(() => {
               const fsCtnEl = this.parent?.containerEl?.parentElement;
               if (!fsCtnEl?.classList.contains("fs-content")) return;
-              if (file.extension != "canvas") return;
+              if (file.extension !== "canvas") return;
 
-              const canvas = this.view.canvas;
+              const canvas = (this.view as CanvasLeafView).canvas;
+              const wanted = (
+                openState?.eState as
+                  | { match?: { content?: string } }
+                  | undefined
+              )?.match?.content;
               window.setTimeout(() => {
-                if (canvas && openState?.eState?.match) {
-                  let node = canvas.data.nodes?.find(
-                    (e: any) =>
-                      e.text === (openState?.eState as any)?.match?.content,
-                  );
-                  if (node) {
-                    node = canvas.nodes.get(node.id);
-                    canvas.selectOnly(node);
-                    canvas.zoomToSelection();
-                  }
+                if (!canvas || wanted === undefined) return;
+                const found = canvas.data.nodes?.find((n) => n.text === wanted);
+                const node = found && canvas.nodes.get(found.id);
+                if (node) {
+                  canvas.selectOnly(node);
+                  canvas.zoomToSelection();
                 }
               }, 20);
             }, 1);
@@ -599,7 +657,8 @@ export default class FloatSearchPlugin extends Plugin {
 
   patchSearchView() {
     const checkCurrentViewType = (leaf: WorkspaceLeaf) => {
-      const isModal = document.querySelector(".float-search-modal") !== null;
+      const isModal =
+        activeDocument.querySelector(".float-search-modal") !== null;
       const currentLeafRoot = leaf.getRoot();
       if (
         currentLeafRoot?.side &&
@@ -639,8 +698,8 @@ export default class FloatSearchPlugin extends Plugin {
               } else {
                 if (current === "window") {
                   originLeaf?.detach();
-                  window.setTimeout(async () => {
-                    await this.openInLeaf(
+                  window.setTimeout(() => {
+                    void this.openInLeaf(
                       <"tab" | "split">view.type,
                       this.state,
                     );
@@ -682,19 +741,21 @@ export default class FloatSearchPlugin extends Plugin {
         await searchLeaf.loadIfDeferred();
       }
 
-      const searchView = searchLeaf?.view as any;
+      const searchView = searchLeaf?.view as SearchView | undefined;
       // Keep the plugin receiver across native method wrappers.
-      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      // eslint-disable-next-line @typescript-eslint/no-this-alias -- the wrappers below need the plugin, but `this` is the patched object
       const self = this;
 
       if (!searchView) return false;
 
-      const searchViewConstructor = searchView.constructor;
+      const searchViewPrototype = Object.getPrototypeOf(
+        searchView,
+      ) as SearchViewPrototype;
 
       this.register(
-        around(searchViewConstructor.prototype, {
+        around(searchViewPrototype, {
           onOpen(old) {
-            return function () {
+            return function (this: SearchView) {
               old.call(this);
 
               const viewSwitchEl = createDiv({
@@ -722,10 +783,9 @@ export default class FloatSearchPlugin extends Plugin {
               // Remove any previously inserted switch button first so
               // repeated rebuilds (rebuildView -> onOpen) don't stack
               // multiple copies and bloat the search view DOM.
-              targetEl.parentElement
-                .querySelector(".float-search-view-switch")
-                ?.remove();
-              targetEl.parentElement.insertBefore(viewSwitchEl, targetEl);
+              const container = targetEl.parentElement;
+              container?.querySelector(".float-search-view-switch")?.remove();
+              container?.insertBefore(viewSwitchEl, targetEl);
               if (!this.hidePathToggle) {
                 this.hidePathToggle = new Setting(this.searchParamsContainerEl)
                   .setName(strings().showFilePath)
@@ -779,44 +839,48 @@ export default class FloatSearchPlugin extends Plugin {
             };
           },
           setExplainSearch(old) {
-            return function (value: boolean) {
+            return function (this: SearchView, value: boolean) {
               old.call(this, value);
               self.persistViewState({ explainSearch: value });
             };
           },
           setCollapseAll(old) {
-            return function (value: boolean) {
+            return function (this: SearchView, value: boolean) {
               old.call(this, value);
               self.persistViewState({ collapseAll: value });
             };
           },
           setExtraContext(old) {
-            return function (value: boolean) {
+            return function (this: SearchView, value: boolean) {
               old.call(this, value);
               self.persistViewState({ extraContext: value });
             };
           },
           setMatchingCase(old) {
-            return function (value: boolean) {
+            return function (this: SearchView, value: boolean) {
               old.call(this, value);
               self.persistViewState({ matchingCase: value });
             };
           },
           setSortOrder(old) {
-            return function (value: string) {
+            return function (this: SearchView, value: string) {
               old.call(this, value);
               self.persistViewState({ sortOrder: value as SortOrder });
             };
           },
           setQuery(old) {
-            return function (value: string) {
+            return function (this: SearchView, value: string) {
               old.call(this, value);
               self.persistViewState({ query: self.stripExclusion(value) });
             };
           },
           setState(old) {
-            return function (state: any, eState: Record<string, unknown>) {
-              if (typeof state.query === "string" && !state?.triggerBySelf) {
+            return function (
+              this: SearchView,
+              state: SearchViewState,
+              eState: unknown,
+            ) {
+              if (typeof state.query === "string" && !state.triggerBySelf) {
                 if (self.queryLoaded) {
                   // Re-route an external query to a Float Search,
                   // but guard against re-entrant spawning (which
@@ -866,8 +930,10 @@ export default class FloatSearchPlugin extends Plugin {
     };
     this.app.workspace.onLayoutReady(async () => {
       if (!(await patchSearch())) {
-        const evt = this.app.workspace.on("layout-change", async () => {
-          (await patchSearch()) && this.app.workspace.offref(evt);
+        const evt = this.app.workspace.on("layout-change", () => {
+          void patchSearch().then((done) => {
+            if (done) this.app.workspace.offref(evt);
+          });
         });
         this.registerEvent(evt);
       }
@@ -877,20 +943,21 @@ export default class FloatSearchPlugin extends Plugin {
   patchVchildren() {
     const patchSearchDom = () => {
       const searchView = this.app.workspace.getLeavesOfType("search")[0]
-        ?.view as any;
+        ?.view as SearchView | undefined;
       if (!searchView) return false;
 
-      const dom = searchView.dom.constructor;
+      const domPrototype = Object.getPrototypeOf(
+        searchView.dom,
+      ) as SearchResultDom;
 
       this.register(
-        around(dom.prototype, {
+        around(domPrototype, {
           stopLoader(old) {
-            return function () {
+            return function (this: SearchResultDom) {
               old.call(this);
-              // console.log(this?.vChildren?.children);
-              this?.vChildren?.children?.forEach((child: any) => {
-                if (child?.file && !child?.pathEl) {
-                  const path = child?.file.parent?.path || "/";
+              this.vChildren?.children?.forEach((child) => {
+                if (child.file && !child.pathEl) {
+                  const path = child.file.parent?.path || "/";
                   const pathEl = createDiv({
                     cls: "search-result-file-path",
                   });
@@ -903,10 +970,9 @@ export default class FloatSearchPlugin extends Plugin {
                     text: path,
                   });
                   child.pathEl = pathEl;
-                  const titleEl = child.containerEl.find(
-                    ".search-result-file-title",
-                  );
-                  titleEl.prepend(pathEl);
+                  child.containerEl
+                    .find(".search-result-file-title")
+                    ?.prepend(pathEl);
                 }
               });
             };
@@ -929,13 +995,13 @@ export default class FloatSearchPlugin extends Plugin {
     const manager = this.app.dragManager;
     if (!manager) return;
     // Keep the plugin receiver across native method wrappers.
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the wrappers below need the plugin, but `this` is the patched object
     const self = this;
 
     this.register(
-      around(manager.constructor.prototype, {
-        dragFile(old: any) {
-          return function (e: any, a: TFile) {
+      around(Object.getPrototypeOf(manager) as DragManager, {
+        dragFile(old) {
+          return function (e: DragEvent, a: TFile) {
             const result = old.call(this, e, a);
 
             window.setTimeout(() => {
@@ -1072,52 +1138,31 @@ export default class FloatSearchPlugin extends Plugin {
       this.addCommand({
         id: `open-search-view-${type}`,
         name: strings().cmdOpenSearchView(type),
-        callback: async () => {
-          const existingLeaf = this.app.workspace.getLeavesOfType("search");
-          switch (type) {
-            case "window": {
-              const isExistingWindowLeaf = existingLeaf.find(
-                (leaf) => leaf.parentSplit.parent.type === "window",
-              );
-              if (isExistingWindowLeaf) {
-                this.app.workspace.revealLeaf(isExistingWindowLeaf);
-                return;
-              }
-              await this.openInLeaf(type, {
-                ...this.state,
-                triggerBySelf: true,
-              });
-              break;
-            }
-            case "tab":
-            case "split": {
-              const isExistingLeaf = existingLeaf.find(
-                (leaf) => !leaf.parentSplit.parent.side,
-              );
-              if (isExistingLeaf) {
-                this.app.workspace.revealLeaf(isExistingLeaf);
-                isExistingLeaf.setViewState({
-                  type: "search",
-                  active: true,
-                  state: {
-                    ...this.state,
-                    triggerBySelf: true,
-                  } as Record<string, unknown>,
-                });
-                return;
-              }
-              await this.openInLeaf(type, {
-                ...this.state,
-                triggerBySelf: true,
-              });
-              break;
-            }
-          }
-        },
+        callback: () => void this.openSearchView(type),
       });
     }
 
     this.syncSavedSearchCommands();
+  }
+
+  /** Open a search view of the given kind, reusing an existing one when there is one. */
+  private async openSearchView(type: PaneType) {
+    const state = { ...this.state, triggerBySelf: true };
+    const existing = this.app.workspace
+      .getLeavesOfType("search")
+      .find((leaf) =>
+        type === "window"
+          ? leaf.getContainer()?.type === "window"
+          : !leaf.getRoot()?.side,
+      );
+    if (!existing) {
+      await this.openInLeaf(type, state);
+      return;
+    }
+    await this.app.workspace.revealLeaf(existing);
+    if (type !== "window") {
+      await existing.setViewState({ type: "search", active: true, state });
+    }
   }
 
   registerSearchOperatorCommands() {
@@ -1261,8 +1306,8 @@ export default class FloatSearchPlugin extends Plugin {
                   }
 
                   this.initModal({ ...this.state, current: false }, true, true);
-                  window.setTimeout(async () => {
-                    await this.modal.initFileView(file, undefined);
+                  window.setTimeout(() => {
+                    void this.modal.initFileView(file, undefined);
                   }, 20);
                 })
                 .setSection?.("open");

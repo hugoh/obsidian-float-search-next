@@ -10,7 +10,6 @@ You can use search view in modal now.
 
 - Set hotkey for open float search quickly.
 
-
 ## 使用说明 | Usage
 
 1. **Three main commands**:
@@ -76,28 +75,36 @@ You can use search view in modal now.
 Everything below is in addition to the usage described above.
 
 ### Quick search (CMDK)
+
 - Double-tap `Shift` (configurable) for a quick-switcher across file names, headings and note content, with preview. Previews render the note, which runs code blocks from other plugins (Dataview, Templater); turn off *Preview results automatically* in settings to preview only on `Tab`.
 - Searching is debounced and file bodies are cached by path and modification time, so repeated typing is fast.
 - Chinese/Japanese/Korean IME composition is respected: no query runs until composition ends.
 - Optionally create a timestamped note from the query when nothing matches.
 
 ### Filters
+
 - Regular expressions are checked before they run: patterns that can backtrack exponentially (for example `^(a+)+$`) are refused with a notice rather than freezing Obsidian. Some pathological patterns, such as overlapping alternations like `(a|aa)+`, cannot be detected, so avoid pasting untrusted regexes.
 - Filter bar on both the global search and quick search: include Bases / Canvas, starred notes only, match case, and regular expressions.
 - **Full Obsidian query syntax** in quick search: `tag:`, `path:`, `folder:`, `file:`, properties (`[key::value]`), content operators (`line:`, `block:`, `section:`, `content:`, `task:`), `-` negation, `"quoted phrases"` and `OR`. Tag matching handles nested tags and tags stored in any frontmatter property.
 
 ### Hide from results (exclusions)
+
 - Hide folders and notes from Float Search results (settings → Filters), picked from your real vault with autocomplete. They are removed from quick search and applied to the global search as `-path:` clauses that are stripped again before the query is saved.
 - This is a convenience filter, **not a privacy control**: it only affects this plugin's results, and the clause is visible and editable in the search box. Obsidian's own search and other views are unaffected.
 
 ### Saved searches
+
 - Save a name plus any query. Each one appears as a filter chip in quick search and as a `Saved search: <name>` command. You can also save the current query from quick search.
 
 ### Languages and settings
+
 - The UI follows Obsidian's language (English and 简体中文). Settings are organised in tabs: General, Quick Search, Quick Create and Filters.
 
 ### Fixes
+
 - Native file opening, regex queries and preview lifecycle (stale previews, late focus after closing); a crash when highlighting inside embedded previews; `setState` re-entry loops and memory leaks.
+
+Requires Obsidian 1.5.7 or later.
 
 ## Development
 
@@ -133,4 +140,3 @@ If you are enjoying this plugin then please support my work and enthusiasm by bu
 on [https://www.buymeacoffee.com/boninall](https://www.buymeacoffee.com/boninall).
 
 <a href="https://www.buymeacoffee.com/boninall"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=boninall&button_colour=6495ED&font_colour=ffffff&font_family=Lato&outline_colour=000000&coffee_colour=FFDD00"></a>
-

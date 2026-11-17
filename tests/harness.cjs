@@ -197,7 +197,7 @@ function createHarness() {
     if (loaded.has(name)) return loaded.get(name);
     const filename = path.join(sourceRoot, 'src', `${name}.ts`);
     let source = fs.readFileSync(filename, 'utf8');
-    
+
     const { code } = transformSync(source, { loader: 'ts', format: 'cjs', target: 'node18', sourcefile: filename });
     const module = { exports: {} };
     loaded.set(name, module.exports);

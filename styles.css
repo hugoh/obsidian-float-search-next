@@ -573,3 +573,13 @@ body:not(.show-file-path) .search-result-file-title .search-result-file-path {
   color: var(--text-warning, var(--text-muted));
   font-style: italic;
 }
+
+.fs-popover-fill {
+  height: auto;
+  width: 100%;
+}
+
+.fs-popover-pdf {
+  height: 800px;
+  width: 600px;
+}

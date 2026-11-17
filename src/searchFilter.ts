@@ -93,8 +93,7 @@ export function isPlainText(query: Query): boolean {
 function tokenize(raw: string): string[] {
   const tokens: string[] = [];
   const re = /-?"[^"]*"|-?\S+/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) tokens.push(m[0]);
+  for (let m = re.exec(raw); m !== null; m = re.exec(raw)) tokens.push(m[0]);
   return tokens;
 }
 

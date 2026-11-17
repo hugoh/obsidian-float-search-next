@@ -15,9 +15,9 @@ import {
 } from "./filterBar";
 import type FloatSearchPlugin from "./floatSearchIndex";
 import { strings } from "./i18n";
-import type { SearchState } from "./settings";
 import { LatestQueue } from "./latestQueue";
 import { type EmbeddedView, spawnLeafView } from "./leafView";
+import type { SearchState } from "./settings";
 
 function createInstructionElement(
   parentEl: HTMLElement,
@@ -287,7 +287,7 @@ export class FloatSearchModal extends Modal {
       return;
     }
     if (state.matchingCase !== this.plugin.settings.filterMatchCase) {
-            void view.setState(
+      void view.setState(
         {
           ...state,
           matchingCase: this.plugin.settings.filterMatchCase,

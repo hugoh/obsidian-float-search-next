@@ -54,8 +54,12 @@ describe("sanitizeSettings", () => {
 
   test("previews quick-search results automatically by default, and honours the choice", () => {
     expect(DEFAULT_SETTINGS.cmdkAutoPreview).toBe(true);
-    expect(sanitizeSettings({ cmdkAutoPreview: false }).cmdkAutoPreview).toBe(false);
-    expect(sanitizeSettings({ cmdkAutoPreview: "no" }).cmdkAutoPreview).toBe(true);
+    expect(sanitizeSettings({ cmdkAutoPreview: false }).cmdkAutoPreview).toBe(
+      false,
+    );
+    expect(sanitizeSettings({ cmdkAutoPreview: "no" }).cmdkAutoPreview).toBe(
+      true,
+    );
   });
 
   test("clamps the double-tap interval to the range the slider allows", () => {

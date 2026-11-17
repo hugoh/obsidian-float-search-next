@@ -102,7 +102,7 @@ describe("createExclusionMatcher", () => {
     expect(excluded("Archive/2020/x.md")).toBe(true);
   });
 
-  test("excludes only the folder itself, not look-alikes or nested namesakes", () => {
+  test("excludes only the folder itself, not similarly named folders or nested namesakes", () => {
     expect(excluded("Templates-old/a.md")).toBe(false);
     expect(excluded("Work/Archive/a.md")).toBe(false);
   });

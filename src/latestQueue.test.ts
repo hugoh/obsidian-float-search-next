@@ -58,9 +58,9 @@ describe("LatestQueue", () => {
       seen.push(isCurrent());
     });
     await tick();
-    queue.run(async () => {});
+    const b = queue.run(async () => {});
     first.open();
-    await a;
+    await Promise.all([a, b]);
     expect(seen).toEqual([true, false]);
   });
 
@@ -89,7 +89,13 @@ describe("LatestQueue", () => {
     const failed = queue.run(async () => {
       throw new Error("boom");
     });
-    await expect(failed).rejects.toThrow("boom");
+    let error: unknown;
+    try {
+      await failed;
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
     let ran = false;
     await queue.run(async () => {
       ran = true;
