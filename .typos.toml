@@ -1,0 +1,2 @@
+[files]
+extend-exclude = ["src/i18n.ts", "pnpm-lock.yaml", "versions.json"]

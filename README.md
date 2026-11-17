@@ -100,11 +100,11 @@ Everything below is in addition to the usage described above.
 ## Development
 
 ```sh
-pnpm install
-pnpm build        # type-check and bundle to main.js
-pnpm lint         # eslint-plugin-obsidianmd
-pnpm test         # unit tests (bun) + regression tests (node)
-pnpm test:e2e     # runs the plugin in a real Obsidian (wdio-obsidian-service)
+bun install
+bun run build        # type-check and bundle to main.js
+bun run lint         # eslint-plugin-obsidianmd
+bun run test         # unit tests (bun) + regression tests (node)
+bun run test:e2e     # runs the plugin in a real Obsidian (wdio-obsidian-service)
 ```
 
 ## Credits and licensing
