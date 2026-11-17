@@ -74,6 +74,22 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 15 | Module-level `activePlugin` outlived the plugin | Global used by a free function | Now a plugin method; seven copies of "open modal or leaf" became `openSearch()` | e2e |
 | 16 | `tag:project` matched notes whose *other* properties contained "project" | Hand-rolled tag search treated any frontmatter string as a tag | Uses Obsidian's `getAllTags` (inline tags and the `tags` property), case-insensitive, nested-aware | `searchFilter.test.ts`, e2e |
 | 17 | Quick-create threw on a same-name note and its title format only knew 7 tokens | `vault.create` without a collision check; hand-rolled `formatTimestamp` | `uniqueNotePath` appends ` 1`, ` 2`...; titles use Obsidian's `moment` (literal text in `[brackets]`) and are made filename-safe | `quickCreate.test.ts`, e2e |
+| 18 | Double-tap shortcut did nothing in popout windows | Listeners were attached to the main `document` only | Attached per window (`window-open`) | e2e (main window) |
+| 19 | `innerHTML` used for the filter icons | Inline SVG strings | Registered with `addIcon` and rendered with `setIcon` | e2e |
+| 20 | Content cache could grow without a byte limit and duplicated its LRU logic in the modal | Count-only cap | `ContentCache` (entries and bytes, LRU, cleared on unload), read through `plugin.readContent` | `contentCache.test.ts` |
+
+## Refactors (behaviour unchanged)
+
+- `LatestQueue`: one "newest request wins" helper replaces two hand-rolled
+  preview queues (`latestQueue.test.ts`).
+- `CmdkResult` is a discriminated union with `ephemeralStateFor`; the `file: null as any`
+  rows and the dead `saved` variants are gone (`cmdkResult.test.ts`).
+- One i18n system: Peingxious's `t()` dictionary was folded into Aiur's typed
+  `strings()` (`i18n.test.ts` checks both languages stay in step).
+- `freeText` / `isPlainText` replace two copies of query text extraction.
+- Dead code removed: `isFileExcluded`, `textMatches`, `openSearchWithQuery`,
+  `patchedDomChildren`, the `normalizePath` wrapper methods, the legacy
+  `filterButtons` migration.
 
 ## Test coverage added
 
@@ -92,10 +108,7 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 
 Tracked from the code review; move a row to the fixes table when done.
 
-- Double-tap shortcut and timers only work in the main window, not popouts.
-- `innerHTML` for the filter icons.
 - Preview auto-renders notes (other plugins' code blocks run); decision pending.
-- Consolidation: two preview implementations, two i18n systems, 3,600-line main
-  file, dead code, hand-rolled helpers that Obsidian already provides (`moment`,
-  `getAllTags`, `cache.blocks`/`listItems`).
+- Split the 3,000-line `floatSearchIndex.ts` into modules.
+- The two modals still have separate preview rendering (they differ in layout and focus handling).
 - Lint backlog (`eslint-plugin-obsidianmd`).

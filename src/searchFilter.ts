@@ -77,6 +77,24 @@ export function parseQuery(raw: string): Query {
 	return { groups: groups.filter((g) => g.length > 0) };
 }
 
+/** The positive free-text terms of a query, joined by spaces. */
+export function freeText(query: Query): string {
+	return query.groups
+		.flat()
+		.flatMap((clause) =>
+			clause.kind === "text" && !clause.negated ? [clause.value.trim()] : []
+		)
+		.filter(Boolean)
+		.join(" ");
+}
+
+/** True when every clause is a positive free-text term (no operators, no negation). */
+export function isPlainText(query: Query): boolean {
+	return query.groups.every((group) =>
+		group.every((clause) => clause.kind === "text" && !clause.negated)
+	);
+}
+
 /** Tokenize respecting double quotes; keeps `-` negation prefix attached. */
 function tokenize(raw: string): string[] {
 	const tokens: string[] = [];

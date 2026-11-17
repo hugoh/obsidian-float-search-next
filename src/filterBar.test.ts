@@ -6,7 +6,6 @@ import {
   type FilterHost,
   isFileAllowed,
   matchAsSearchResult,
-  textMatches,
 } from "./filterBar";
 
 function host(overrides: Partial<FilterHost["settings"]> = {}): FilterHost {
@@ -117,6 +116,6 @@ describe("matchAsSearchResult", () => {
   });
 
   test("an invalid regex matches nothing", () => {
-    expect(textMatches(host({ filterUseRegex: true }), "abc", "(")).toBe(false);
+    expect(matchAsSearchResult(host({ filterUseRegex: true }), "abc", "(")).toBeNull();
   });
 });

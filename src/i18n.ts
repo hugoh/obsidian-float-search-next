@@ -109,6 +109,30 @@ export interface Strings {
 	filterStarredOnly: string;
 	filterMatchCase: string;
 	filterRegex: string;
+	savedSearchCmd: (name: string) => string;
+	saveAsPreset: string;
+	presetName: string;
+	save: string;
+	cancel: string;
+	clickToRemove: string;
+	tabFilters: string;
+	exclusions: string;
+	excludeFolders: string;
+	excludeFoldersDesc: string;
+	phTemplates: string;
+	excludeFiles: string;
+	excludeFilesDesc: string;
+	phSecrets: string;
+	savedSearches: string;
+	addSavedSearch: string;
+	addSavedSearchDesc: string;
+	namePlaceholder: string;
+	queryPlaceholder: string;
+	add: string;
+	edit: string;
+	delete: string;
+	noSavedSearches: string;
+	saveCurrentTitle: string;
 }
 
 const EN: Strings = {
@@ -191,6 +215,30 @@ const EN: Strings = {
 	filterStarredOnly: "Starred only",
 	filterMatchCase: "Match case",
 	filterRegex: "Use regular expression",
+	savedSearchCmd: (name) => `Saved search: ${name}`,
+	saveAsPreset: "Save search as preset",
+	presetName: "Preset name",
+	save: "Save",
+	cancel: "Cancel",
+	clickToRemove: "Click to remove",
+	tabFilters: "Filters",
+	exclusions: "Exclusions",
+	excludeFolders: "Exclude folders",
+	excludeFoldersDesc: "Folders to skip in CMDK and main search. Pick a folder from the list; click a pill to remove.",
+	phTemplates: "e.g. Templates",
+	excludeFiles: "Exclude files",
+	excludeFilesDesc: "Specific files to skip. Pick a file from the list; click a pill to remove.",
+	phSecrets: "e.g. Secrets.md",
+	savedSearches: "Saved searches",
+	addSavedSearch: "Add saved search",
+	addSavedSearchDesc: "Save a query as a preset. It appears as a chip above the CMDK results — click it to filter the list inline (no jump to the native search). Also runs from the command palette.",
+	namePlaceholder: "Name (e.g. Current project)",
+	queryPlaceholder: "Query (e.g. tag:#project)",
+	add: "Add",
+	edit: "Edit",
+	delete: "Delete",
+	noSavedSearches: "No saved searches yet.",
+	saveCurrentTitle: "Save current search as preset",
 };
 
 const ZH: Strings = {
@@ -277,133 +325,32 @@ const ZH: Strings = {
 	filterStarredOnly: "只看收藏",
 	filterMatchCase: "区分大小写",
 	filterRegex: "使用正则表达式",
+	savedSearchCmd: (name) => `预设搜索：${name}`,
+	saveAsPreset: "保存为预设搜索",
+	presetName: "预设名称",
+	save: "保存",
+	cancel: "取消",
+	clickToRemove: "点击删除",
+	tabFilters: "筛选",
+	exclusions: "排除项",
+	excludeFolders: "排除文件夹",
+	excludeFoldersDesc: "在 CMDK 与主搜索中跳过的文件夹。从列表中选择，点击胶囊可删除。",
+	phTemplates: "例如：Templates",
+	excludeFiles: "排除文件",
+	excludeFilesDesc: "需跳过的指定文件。从列表中选择，点击胶囊可删除。",
+	phSecrets: "例如：Secrets.md",
+	savedSearches: "预设搜索",
+	addSavedSearch: "添加预设搜索",
+	addSavedSearchDesc: "保存一个查询作为预设。它会以芯片形式出现在 CMDK 结果上方——点击即在原列表内筛选（不再跳转到原生搜索）。也可通过命令面板运行。",
+	namePlaceholder: "名称（如：当前项目）",
+	queryPlaceholder: "查询（如：tag:#项目）",
+	add: "添加",
+	edit: "编辑",
+	delete: "删除",
+	noSavedSearches: "暂无预设搜索。",
+	saveCurrentTitle: "保存当前搜索为预设",
 };
 
 export function strings(): Strings {
 	return getLocale() === "zh" ? ZH : EN;
-}
-
-const dict: Record<string, { en: string; zh: string }> = {
-	// Settings tab
-	tabFilters: { en: "Filters", zh: "筛选" },
-	settingsTitle: {
-		en: "Float Search Settings",
-		zh: "浮窗搜索设置",
-	},
-	quickSearchTrigger: {
-		en: "Quick search trigger",
-		zh: "极速搜索触发键",
-	},
-	quickSearchTriggerDesc: {
-		en: "Double-tap this key to open the quick search modal (CMDK).",
-		zh: "双击此按键打开极速搜索弹窗（CMDK）。",
-	},
-	doubleTapInterval: {
-		en: "Double-tap interval (ms)",
-		zh: "双击间隔（毫秒）",
-	},
-	doubleTapIntervalDesc: {
-		en: "Maximum time between two key presses to trigger quick search. Default: 300ms.",
-		zh: "两次按键之间触发极速搜索的最大间隔，默认 300 毫秒。",
-	},
-	quickCreate: { en: "Quick Create", zh: "快速创建" },
-	enableQuickCreate: { en: "Enable quick create", zh: "启用快速创建" },
-	enableQuickCreateDesc: {
-		en: "When no exact match is found in quick search, show an option to create a new note with the search text as content.",
-		zh: "极速搜索无精确匹配时，显示用搜索文本作为内容创建新笔记的选项。",
-	},
-	quickCreateFolder: {
-		en: "Quick create folder",
-		zh: "快速创建文件夹",
-	},
-	quickCreateFolderDesc: {
-		en: "Folder to create new notes in. Leave empty for vault root.",
-		zh: "新建笔记所在的文件夹，留空则为仓库根目录。",
-	},
-	titleFormat: { en: "Title format", zh: "标题格式" },
-	titleFormatDesc: {
-		en: "Moment.js format for the note title, e.g. YYYYMMDDHHmmss. Wrap literal text in [brackets].",
-		zh: "笔记标题的 Moment.js 格式，例如 YYYYMMDDHHmmss。字面文字请用 [方括号] 包裹。",
-	},
-	exclusions: { en: "Exclusions", zh: "排除项" },
-	excludeFolders: { en: "Exclude folders", zh: "排除文件夹" },
-	excludeFoldersDesc: {
-		en: "Folders to skip in CMDK and main search. Pick a folder from the list; click a pill to remove.",
-		zh: "在 CMDK 与主搜索中跳过的文件夹。从列表中选择，点击胶囊可删除。",
-	},
-	excludeFiles: { en: "Exclude files", zh: "排除文件" },
-	excludeFilesDesc: {
-		en: "Specific files to skip. Pick a file from the list; click a pill to remove.",
-		zh: "需跳过的指定文件。从列表中选择，点击胶囊可删除。",
-	},
-	savedSearches: { en: "Saved searches", zh: "预设搜索" },
-	addSavedSearch: { en: "Add saved search", zh: "添加预设搜索" },
-	addSavedSearchDesc: {
-		en: "Save a query as a preset. It appears as a chip above the CMDK results — click it to filter the list inline (no jump to the native search). Also runs from the command palette.",
-		zh: "保存一个查询作为预设。它会以芯片形式出现在 CMDK 结果上方——点击即在原列表内筛选（不再跳转到原生搜索）。也可通过命令面板运行。",
-	},
-	namePlaceholder: {
-		en: "Name (e.g. Current project)",
-		zh: "名称（如：当前项目）",
-	},
-	queryPlaceholder: {
-		en: "Query (e.g. tag:#project)",
-		zh: "查询（如：tag:#项目）",
-	},
-	add: { en: "Add", zh: "添加" },
-	edit: { en: "Edit", zh: "编辑" },
-	delete: { en: "Delete", zh: "删除" },
-	noSavedSearches: {
-		en: "No saved searches yet.",
-		zh: "暂无预设搜索。",
-	},
-
-	// Pills
-	clickToRemove: { en: "Click to remove", zh: "点击删除" },
-
-	// Name prompt modal
-	saveAsPreset: { en: "Save search as preset", zh: "保存为预设搜索" },
-	presetName: { en: "Preset name", zh: "预设名称" },
-	save: { en: "Save", zh: "保存" },
-	cancel: { en: "Cancel", zh: "取消" },
-
-	// CMDK items
-	savedSearchNote: { en: "Saved search", zh: "预设搜索" },
-	saveCurrentTitle: {
-		en: "Save current search as preset",
-		zh: "保存当前搜索为预设",
-	},
-
-	// Command
-	savedSearchCmd: {
-		en: "Saved search: {name}",
-		zh: "预设搜索：{name}",
-	},
-
-	// Placeholders
-	phInbox: { en: "e.g. Inbox", zh: "例如：收件箱" },
-	phTemplates: { en: "e.g. Templates", zh: "例如：Templates" },
-	phSecrets: { en: "e.g. Secrets.md", zh: "例如：Secrets.md" },
-	phTimestamp: { en: "YYYYMMDDHHmmss", zh: "YYYYMMDDHHmmss" },
-
-
-};
-
-export function t(
-	key: keyof typeof dict | string,
-	vars?: Record<string, string | number>
-): string {
-	const entry = dict[key];
-	let s: string;
-	if (!entry) {
-		s = key;
-	} else {
-		s = getLocale() === "zh" ? entry.zh : entry.en;
-	}
-	if (vars) {
-		for (const k of Object.keys(vars)) {
-			s = s.split(`{${k}}`).join(String(vars[k]));
-		}
-	}
-	return s;
 }

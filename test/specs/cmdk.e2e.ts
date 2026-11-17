@@ -23,6 +23,19 @@ describe("Quick search (CMDK)", () => {
 		await closeModals();
 	});
 
+	it("opens when the trigger key is double-tapped", async () => {
+		await updateSettings({ cmdkTriggerKey: "Shift", cmdkDoubleTapInterval: 600 });
+		await browser.keys("Shift");
+		await browser.keys("Shift");
+		await browser.$(".float-search-cmdk").waitForExist({ timeout: 5000 });
+	});
+
+	it("renders the filter icons", async () => {
+		await openCmdk();
+		const icons = await browser.$$(".float-search-cmdk .fs-filter-icon svg");
+		expect(icons.length).toBe(2);
+	});
+
 	it("finds notes by name and opens the selected one", async () => {
 		const input = await openCmdk();
 		await input.setValue("pineapple");

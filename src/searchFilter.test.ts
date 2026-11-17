@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { App, CachedMetadata, TFile } from "obsidian";
-import { SearchFilter, parseQuery, requiresContent } from "./searchFilter";
+import { SearchFilter, freeText, isPlainText, parseQuery, requiresContent } from "./searchFilter";
 
 function file(path: string): TFile {
   const name = path.split("/").pop() ?? path;
@@ -196,5 +196,32 @@ describe("SearchFilter.buildMatchSets", () => {
     const sets = filter.buildMatchSets(files, ["path:Notes", "path:Work"]);
     expect([...(sets.get("path:Notes") ?? [])]).toEqual(["Notes/a.md"]);
     expect([...(sets.get("path:Work") ?? [])]).toEqual(["Work/b.md"]);
+  });
+});
+
+describe("freeText", () => {
+  test("joins the positive free-text terms", () => {
+    expect(freeText(parseQuery("hello tag:a world"))).toBe("hello world");
+  });
+
+  test("ignores negated terms and operators", () => {
+    expect(freeText(parseQuery("-secret path:x content:y"))).toBe("");
+  });
+
+  test("keeps a quoted phrase as one term", () => {
+    expect(freeText(parseQuery('"two words" other'))).toBe("two words other");
+  });
+
+  test("is empty for an empty query", () => {
+    expect(freeText(parseQuery(""))).toBe("");
+  });
+});
+
+describe("isPlainText", () => {
+  test("is true only when every clause is a positive free-text term", () => {
+    expect(isPlainText(parseQuery("hello world"))).toBe(true);
+    expect(isPlainText(parseQuery("hello tag:a"))).toBe(false);
+    expect(isPlainText(parseQuery("-hello"))).toBe(false);
+    expect(isPlainText(parseQuery("a OR b"))).toBe(true);
   });
 });

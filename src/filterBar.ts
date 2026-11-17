@@ -1,4 +1,4 @@
-import { debounce, prepareFuzzySearch, TFile } from "obsidian";
+import { addIcon, debounce, prepareFuzzySearch, setIcon, TFile } from "obsidian";
 import type { App, SearchResult, SearchView } from "obsidian";
 import { strings } from "./i18n";
 import { compileSafeRegex, truncateForRegex } from "./regex";
@@ -16,9 +16,20 @@ export interface FilterHost {
 	app: App;
 }
 
-const CASE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M90.86,50.89a12,12,0,0,0-21.72,0l-64,136a12,12,0,0,0,21.71,10.22L42.44,164h75.12l15.58,33.11a12,12,0,0,0,21.72-10.22ZM53.74,140,80,84.18,106.27,140ZM200,84c-13.85,0-24.77,3.86-32.45,11.48a12,12,0,1,0,16.9,17c3-3,8.26-4.52,15.55-4.52,11,0,20,7.18,20,16v4.39A47.28,47.28,0,0,0,200,124c-24.26,0-44,17.94-44,40s19.74,40,44,40a47.18,47.18,0,0,0,22-5.38A12,12,0,0,0,244,192V124C244,101.94,224.26,84,200,84Zm0,96c-11,0-20-7.18-20-16s9-16,20-16,20,7.18,20,16S211,180,200,180Z"/></svg>`;
+const CASE_ICON = "float-search-case";
+const REGEX_ICON = "float-search-regex";
 
-const REGEX_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><circle cx="46" cy="128" r="22"/><g transform="translate(48 8) scale(0.78)"><path d="M212.45,107.14l-65.19,26.08,46.21,59.41a12,12,0,1,1-18.94,14.74L128,147.55,81.47,207.37a12,12,0,0,1-18.94-14.74l46.21-59.41L43.55,107.14a12,12,0,1,1,8.91-22.28L116,110.28V40a12,12,0,0,1,24,0v70.28l63.54-25.42a12,12,0,1,1,8.91,22.28Z"/></g></svg>`;
+// Phosphor icons drawn on a 256 grid, scaled into Obsidian's 100x100 icon slot.
+const FILTER_ICONS: Record<string, string> = {
+	[CASE_ICON]: `<path d="M90.86,50.89a12,12,0,0,0-21.72,0l-64,136a12,12,0,0,0,21.71,10.22L42.44,164h75.12l15.58,33.11a12,12,0,0,0,21.72-10.22ZM53.74,140,80,84.18,106.27,140ZM200,84c-13.85,0-24.77,3.86-32.45,11.48a12,12,0,1,0,16.9,17c3-3,8.26-4.52,15.55-4.52,11,0,20,7.18,20,16v4.39A47.28,47.28,0,0,0,200,124c-24.26,0-44,17.94-44,40s19.74,40,44,40a47.18,47.18,0,0,0,22-5.38A12,12,0,0,0,244,192V124C244,101.94,224.26,84,200,84Zm0,96c-11,0-20-7.18-20-16s9-16,20-16,20,7.18,20,16S211,180,200,180Z"/>`,
+	[REGEX_ICON]: `<circle cx="46" cy="128" r="22"/><g transform="translate(48 8) scale(0.78)"><path d="M212.45,107.14l-65.19,26.08,46.21,59.41a12,12,0,1,1-18.94,14.74L128,147.55,81.47,207.37a12,12,0,0,1-18.94-14.74l46.21-59.41L43.55,107.14a12,12,0,1,1,8.91-22.28L116,110.28V40a12,12,0,0,1,24,0v70.28l63.54-25.42a12,12,0,1,1,8.91,22.28Z"/></g>`,
+};
+
+export function registerFilterIcons(): void {
+	for (const [name, shapes] of Object.entries(FILTER_ICONS)) {
+		addIcon(name, `<g transform="scale(0.390625)" fill="currentColor">${shapes}</g>`);
+	}
+}
 
 export function getBookmarkedPaths(app: App): Set<string> {
 	const paths = new Set<string>();
@@ -132,14 +143,6 @@ export function bindNativeRegexSearch(
 		}
 		unpatch();
 	};
-}
-
-export function textMatches(
-	plugin: FilterHost,
-	text: string,
-	query: string
-): boolean {
-	return matchAsSearchResult(plugin, text, query) !== null;
 }
 
 export function matchAsSearchResult(
@@ -276,9 +279,9 @@ export function mountFilterBar(
 
 	row.createDiv({ cls: "fs-filter-spacer" });
 
-	const addIcon = (
+	const addToggleIcon = (
 		label: string,
-		svg: string,
+		icon: string,
 		get: () => boolean,
 		set: (v: boolean) => void
 	) => {
@@ -287,7 +290,7 @@ export function mountFilterBar(
 		btn.setAttribute("aria-label", label);
 		btn.setAttribute("aria-pressed", get() ? "true" : "false");
 		if (get()) btn.addClass("is-active");
-		btn.innerHTML = svg;
+		setIcon(btn, icon);
 		btn.onclick = async () => {
 			const next = !get();
 			set(next);
@@ -298,17 +301,17 @@ export function mountFilterBar(
 		};
 	};
 
-	addIcon(
+	addToggleIcon(
 		s.filterMatchCase,
-		CASE_SVG,
+		CASE_ICON,
 		() => plugin.settings.filterMatchCase,
 		(v) => {
 			plugin.settings.filterMatchCase = v;
 		}
 	);
-	addIcon(
+	addToggleIcon(
 		s.filterRegex,
-		REGEX_SVG,
+		REGEX_ICON,
 		() => plugin.settings.filterUseRegex,
 		(v) => {
 			plugin.settings.filterUseRegex = v;

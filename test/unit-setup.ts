@@ -10,6 +10,8 @@ const fuzzy = (query: string) => (text: string) => {
 mock.module("obsidian", () => ({
   prepareFuzzySearch: fuzzy,
   TFile: class {},
+  addIcon: () => {},
+  setIcon: () => {},
   // Mirrors Obsidian's getAllTags: inline tags plus the `tags` frontmatter property.
   getAllTags: (cache: {
     tags?: { tag: string }[];

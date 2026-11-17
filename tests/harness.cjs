@@ -139,7 +139,7 @@ function createHarness() {
   }
   const obsidian = {
     Modal, SuggestModal, TFile,
-    Plugin: class {}, PluginSettingTab: class {}, normalizePath: (p) => String(p).replace(/^\/+|\/+$/g, '') || '/', AbstractInputSuggest: class {}, TFolder: class {},
+    Plugin: class {}, PluginSettingTab: class {}, addIcon() {}, setIcon() {}, normalizePath: (p) => String(p).replace(/^\/+|\/+$/g, '') || '/', AbstractInputSuggest: class {}, TFolder: class {},
     prepareFuzzySearch: (q) => (text) => (String(text).toLowerCase().includes(String(q).toLowerCase()) ? { score: 0, matches: [] } : null),
     Workspace: class {}, WorkspaceLeaf: class {}, WorkspaceContainer: class {},
     debounce(callback, delay) {
@@ -247,8 +247,7 @@ function createHarness() {
     normalizePath: (p) => String(p).replace(/^\/+|\/+$/g, ''),
     withExclusion: (q) => q,
     stripExclusion: (q) => q,
-    contentCache: new Map(),
-    cacheFileContent(path, mtime, text) { this.contentCache.set(path, { mtime, text }); },
+    readContent(file) { return this.app.vault.cachedRead(file); },
   };
   return { ...load('floatSearchIndex'), filters: load('filterBar'), clock, app, plugin,
     mainLeaf, makeLeaf, leafModule, spawned, TFile, ElementStub };

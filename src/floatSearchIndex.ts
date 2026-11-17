@@ -31,7 +31,7 @@ import {
 	WorkspaceLeaf,
 } from "obsidian";
 import { EmbeddedView, isEmebeddedLeaf, spawnLeafView } from "./leafView";
-import { SearchFilter, parseQuery, requiresContent, type Query, type Clause } from "./searchFilter";
+import { SearchFilter, freeText, isPlainText, parseQuery, requiresContent, type Query, type Clause } from "./searchFilter";
 import {
 	createExclusionMatcher,
 	normalizePath,
@@ -50,12 +50,16 @@ import {
 	type SortOrder,
 } from "./settings";
 import { safeFileName, uniqueNotePath } from "./quickCreate";
+import { type CmdkResult, type FileResult, ephemeralStateFor, isFileResult } from "./cmdkResult";
+import { ContentCache } from "./contentCache";
+import { LatestQueue } from "./latestQueue";
 import { escapeRegex } from "./regex";
 import { around } from "monkey-around";
 import { debounce } from "obsidian";
-import { strings, t } from "./i18n";
+import { strings } from "./i18n";
 import {
 	applyNativeResultFilters,
+	registerFilterIcons,
 	bindNativeRegexSearch,
 	isFileAllowed,
 	getBookmarkedPaths,
@@ -146,9 +150,10 @@ export default class FloatSearchPlugin extends Plugin {
 		await this.loadSettings();
 		
 
+		this.registerIcons();
+		registerFilterIcons();
 		this.app.workspace.onLayoutReady(() => {
 			this.initState();
-			this.registerIcons();
 			// The prototype monkeypatches (patchWorkspace / patchSearchView / …)
 			// are deferred to first use via ensurePatched() — they are only
 			// needed once the user actually opens a float search, so we no
@@ -162,7 +167,7 @@ export default class FloatSearchPlugin extends Plugin {
 		this.registerObsidianCommands();
 		this.registerEditorMenuHandler();
 		this.registerContextMenuHandler();
-		this.registerRibbonIcon();
+		
 
 		this.addRibbonIcon(
 			"float-search-window",
@@ -177,20 +182,18 @@ export default class FloatSearchPlugin extends Plugin {
 		// this.state = DEFAULT_SETTINGS.searchViewState;
 		this.modal?.close();
 		this.cmdkModal?.close();
+		this.contentCache.clear();
 	}
 
-	// Candidate ④: warm, plugin-scoped content cache shared across every CMDK
-	// open (no longer cleared on each open). Invalidated per-path on vault
-	// changes; capped with a simple LRU to bound memory.
-	public contentCache = new Map<string, { mtime: number; text: string }>();
-	private readonly CONTENT_CACHE_MAX = 2000;
+	// Shared across every CMDK open so repeated searches rarely re-read bodies.
+	private readonly contentCache = new ContentCache();
 
-	cacheFileContent(path: string, mtime: number, text: string) {
-		if (this.contentCache.size >= this.CONTENT_CACHE_MAX) {
-			const oldest = this.contentCache.keys().next().value;
-			if (oldest !== undefined) this.contentCache.delete(oldest);
-		}
-		this.contentCache.set(path, { mtime, text });
+	async readContent(file: TFile): Promise<string> {
+		const cached = this.contentCache.get(file.path, file.stat.mtime);
+		if (cached !== undefined) return cached;
+		const text = await this.app.vault.cachedRead(file);
+		this.contentCache.set(file.path, file.stat.mtime, text);
+		return text;
 	}
 
 	private registerContentCacheInvalidation() {
@@ -266,24 +269,22 @@ export default class FloatSearchPlugin extends Plugin {
 		let lastKeyUp = 0;
 		let keyOnly = true;
 
-		this.registerDomEvent(document, "keydown", (e: KeyboardEvent) => {
-			const triggerKey = this.settings.cmdkTriggerKey;
-			if (triggerKey === "none" || e.key !== triggerKey) {
-				keyOnly = false;
-			}
-		});
+		const listen = (doc: Document) => {
+			this.registerDomEvent(doc, "keydown", (e: KeyboardEvent) => {
+				const triggerKey = this.settings.cmdkTriggerKey;
+				if (triggerKey === "none" || e.key !== triggerKey) {
+					keyOnly = false;
+				}
+			});
 
-		this.registerDomEvent(document, "keyup", (e: KeyboardEvent) => {
-			const triggerKey = this.settings.cmdkTriggerKey;
-			if (triggerKey === "none") return;
-			if (e.key === triggerKey) {
+			this.registerDomEvent(doc, "keyup", (e: KeyboardEvent) => {
+				const triggerKey = this.settings.cmdkTriggerKey;
+				if (triggerKey === "none" || e.key !== triggerKey) return;
 				const now = Date.now();
 				if (
 					keyOnly &&
 					now - lastKeyUp < this.settings.cmdkDoubleTapInterval &&
-					!document.querySelector(
-						".float-search-cmdk-container"
-					)
+					!doc.querySelector(".float-search-cmdk-container")
 				) {
 					lastKeyUp = 0;
 					this.openCmdkModal();
@@ -291,8 +292,16 @@ export default class FloatSearchPlugin extends Plugin {
 					lastKeyUp = now;
 					keyOnly = true;
 				}
-			}
-		});
+			});
+		};
+
+		listen(document);
+		// Popout windows have their own document.
+		this.registerEvent(
+			this.app.workspace.on("window-open", (_workspaceWindow, win) =>
+				listen(win.document)
+			)
+		);
 	}
 
 	openCmdkModal(initialFilters?: string[]) {
@@ -341,7 +350,7 @@ export default class FloatSearchPlugin extends Plugin {
 			this.savedSearchCommands.set(preset.id, preset.name);
 			this.addCommand({
 				id: `savedsearch-${preset.id}`,
-				name: t("savedSearchCmd", { name: preset.name }),
+				name: strings().savedSearchCmd(preset.name),
 				callback: () => {
 					const latest = this.settings.savedSearches.find((s) => s.id === preset.id);
 					if (latest) this.openCmdkModal([latest.query]);
@@ -1288,19 +1297,10 @@ export default class FloatSearchPlugin extends Plugin {
 						return;
 					}
 					const selection = editor.getSelection().trim();
-					let searchWord = selection;
-
-					if (selection.length > 8) {
-						searchWord =
-							selection.substring(0, 3) +
-							"..." +
-							selection.substring(
-								selection.length - 3,
-								selection.length
-							);
-					} else {
-						searchWord = selection;
-					}
+					const searchWord =
+						selection.length > 8
+							? `${selection.slice(0, 3)}...${selection.slice(-3)}`
+							: selection;
 
 					menu.addItem((item) => {
 						// Add sub menu
@@ -1370,16 +1370,13 @@ export default class FloatSearchPlugin extends Plugin {
 		);
 	}
 
-	registerRibbonIcon() {
+	registerIcons() {
 		// Phosphor Bold: app-window + magnifying-glass (MIT)
 		// https://phosphoricons.com/  256 viewBox scaled into Obsidian's 100x100 icon slot
 		addIcon(
 			"float-search-window",
 			`<g transform="translate(3 10) scale(0.275)" fill="currentColor"><path d="M216,36H40A20,20,0,0,0,20,56V200a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A20,20,0,0,0,216,36Zm-4,160H44V60H212ZM60,92a16,16,0,1,1,16,16A16,16,0,0,1,60,92Zm48,0a16,16,0,1,1,16,16A16,16,0,0,1,108,92Z"/></g><g transform="translate(38 38) scale(0.24)" fill="currentColor"><path d="M232.49,215.51,185,168a92.12,92.12,0,1,0-17,17l47.53,47.54a12,12,0,0,0,17-17ZM44,112a68,68,0,1,1,68,68A68.07,68.07,0,0,1,44,112Z"/></g>`
 		);
-	}
-
-	registerIcons() {
 		addIcon(
 			"panel-left-inactive",
 			`<path style="fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:currentColor;stroke-opacity:1;stroke-miterlimit:4;" d="M 4.999687 3 L 19.000312 3 C 20.104688 3 21 3.895312 21 4.999687 L 21 19.000312 C 21 20.104688 20.104688 21 19.000312 21 L 4.999687 21 C 3.895312 21 3 20.104688 3 19.000312 L 3 4.999687 C 3 3.895312 3.895312 3 4.999687 3 Z M 4.999687 3 " transform="matrix(4.166667,0,0,4.166667,0,0)"/><path style="fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:currentColor;stroke-opacity:1;stroke-miterlimit:4;" d="M 9 13.999688 L 9 15 " transform="matrix(4.166667,0,0,4.166667,0,0)"/><path style="fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:currentColor;stroke-opacity:1;stroke-miterlimit:4;" d="M 9 19.000312 L 9 21 " transform="matrix(4.166667,0,0,4.166667,0,0)"/><path style="fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:currentColor;stroke-opacity:1;stroke-miterlimit:4;" d="M 9 3 L 9 4.999687 " transform="matrix(4.166667,0,0,4.166667,0,0)"/><path style="fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:currentColor;stroke-opacity:1;stroke-miterlimit:4;" d="M 9 9 L 9 10.000312 " transform="matrix(4.166667,0,0,4.166667,0,0)"/>`
@@ -1438,15 +1435,15 @@ class NamePromptModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.addClass("float-search-prompt");
-		contentEl.createEl("h3", { text: t("saveAsPreset") });
+		contentEl.createEl("h3", { text: strings().saveAsPreset });
 		const input = contentEl.createEl("input", {
 			type: "text",
-			placeholder: t("presetName"),
+			placeholder: strings().presetName,
 		});
 		input.value = this.defaultValue;
 		const row = contentEl.createDiv({ cls: "float-search-prompt-row" });
-		const ok = row.createEl("button", { text: t("save") });
-		const cancel = row.createEl("button", { text: t("cancel") });
+		const ok = row.createEl("button", { text: strings().save });
+		const cancel = row.createEl("button", { text: strings().cancel });
 
 		const submit = () => {
 			const v = input.value.trim();
@@ -1483,7 +1480,7 @@ function buildPillList(
 	items.forEach((item, i) => {
 		const pill = wrap.createDiv({ cls: "float-search-pill" });
 		pill.setText(item);
-		pill.title = t("clickToRemove");
+		pill.title = strings().clickToRemove;
 		pill.onClickEvent(() => onRemove(i));
 	});
 	return wrap;
@@ -1577,7 +1574,7 @@ class FloatSearchSettingTab extends PluginSettingTab {
 			{ id: "general", name: s.tabGeneral },
 			{ id: "quick-search", name: s.tabQuickSearch },
 			{ id: "quick-create", name: s.tabQuickCreate },
-			{ id: "filters", name: t("tabFilters") },
+			{ id: "filters", name: strings().tabFilters },
 		];
 		for (const tab of tabsList) {
 			const btn = tabsContainer.createEl("button", { text: tab.name });
@@ -1722,14 +1719,14 @@ class FloatSearchSettingTab extends PluginSettingTab {
 
 	private renderFilters(container: HTMLElement) {
 		// ── Exclusions ──────────────────────────────────────────────
-		container.createEl("h3", { text: t("exclusions") });
+		container.createEl("h3", { text: strings().exclusions });
 
 		// Exclude folders
 		new Setting(container)
-			.setName(t("excludeFolders"))
-			.setDesc(t("excludeFoldersDesc"))
+			.setName(strings().excludeFolders)
+			.setDesc(strings().excludeFoldersDesc)
 			.addText((text) => {
-				text.setPlaceholder(t("phTemplates"));
+				text.setPlaceholder(strings().phTemplates);
 				new PathSuggest(
 					this.app,
 					text.inputEl,
@@ -1759,10 +1756,10 @@ class FloatSearchSettingTab extends PluginSettingTab {
 
 		// Exclude files
 		new Setting(container)
-			.setName(t("excludeFiles"))
-			.setDesc(t("excludeFilesDesc"))
+			.setName(strings().excludeFiles)
+			.setDesc(strings().excludeFilesDesc)
 			.addText((text) => {
-				text.setPlaceholder(t("phSecrets"));
+				text.setPlaceholder(strings().phSecrets);
 				new PathSuggest(
 					this.app,
 					text.inputEl,
@@ -1791,25 +1788,25 @@ class FloatSearchSettingTab extends PluginSettingTab {
 		);
 
 		// ── Saved searches ─────────────────────────────────────────
-		container.createEl("h3", { text: t("savedSearches") });
+		container.createEl("h3", { text: strings().savedSearches });
 
 		const addSetting = new Setting(container).setName(
-			t("addSavedSearch")
+			strings().addSavedSearch
 		);
-		addSetting.setDesc(t("addSavedSearchDesc"));
+		addSetting.setDesc(strings().addSavedSearchDesc);
 		let nameInput: any;
 		let queryInput: any;
 		addSetting.addText((text) => {
 			nameInput = text;
-			text.setPlaceholder(t("namePlaceholder"));
+			text.setPlaceholder(strings().namePlaceholder);
 		});
 		addSetting.addText((text) => {
 			queryInput = text;
-			text.setPlaceholder(t("queryPlaceholder"));
+			text.setPlaceholder(strings().queryPlaceholder);
 		});
 		addSetting.addButton((button) => {
 			button
-				.setButtonText(t("add"))
+				.setButtonText(strings().add)
 				.setCta()
 				.onClick(async () => {
 					const name = nameInput?.inputEl.value.trim();
@@ -1858,11 +1855,11 @@ class FloatSearchSettingTab extends PluginSettingTab {
 				cls: "float-search-saved-actions",
 			});
 			const edit = actions.createEl("button", {
-				text: t("edit"),
+				text: strings().edit,
 				cls: "float-search-saved-edit",
 			});
 			const del = actions.createEl("button", {
-				text: t("delete"),
+				text: strings().delete,
 				cls: "float-search-saved-delete",
 			});
 
@@ -1875,19 +1872,19 @@ class FloatSearchSettingTab extends PluginSettingTab {
 					type: "text",
 				});
 				nameField.value = s.name;
-				nameField.placeholder = t("namePlaceholder");
+				nameField.placeholder = strings().namePlaceholder;
 				const queryField = row.createEl("input", {
 					cls: "float-search-saved-input",
 					type: "text",
 				});
 				queryField.value = s.query;
-				queryField.placeholder = t("queryPlaceholder");
+				queryField.placeholder = strings().queryPlaceholder;
 				const saveBtn = row.createEl("button", {
-					text: t("save"),
+					text: strings().save,
 					cls: "float-search-saved-save",
 				});
 				const cancelBtn = row.createEl("button", {
-					text: t("cancel"),
+					text: strings().cancel,
 					cls: "float-search-saved-cancel",
 				});
 				nameField.focus();
@@ -1923,7 +1920,7 @@ class FloatSearchSettingTab extends PluginSettingTab {
 		if (this.plugin.settings.savedSearches.length === 0) {
 			listEl.createDiv({
 				cls: "float-search-saved-empty",
-				text: t("noSavedSearches"),
+				text: strings().noSavedSearches,
 			});
 		}
 	}
@@ -1971,8 +1968,7 @@ class FloatSearchModal extends Modal {
 
 	private focusdItem: any;
 	private closed = false;
-	private previewRequest = 0;
-	private previewQueue: Promise<void> = Promise.resolve();
+	private readonly previews = new LatestQueue();
 	private inputCleanup: (() => void) | null = null;
 
 	private debouncedAutoPreview = debounce(() => {
@@ -2461,7 +2457,7 @@ class FloatSearchModal extends Modal {
 	}
 
 	private clearPreview() {
-		this.previewRequest++;
+		this.previews.invalidate();
 		this.focusdItem = undefined;
 		this.fileState = undefined;
 		this.fileLeaf?.detach();
@@ -2474,21 +2470,19 @@ class FloatSearchModal extends Modal {
 
 	async initFileView(file: TFile, state: any) {
 		if (this.closed) return;
-		const request = ++this.previewRequest;
-		this.previewQueue = this.previewQueue.catch(() => {}).then(async () => {
-			if (this.closed || request !== this.previewRequest) return;
-			await this.renderFileView(file, state, request);
+		await this.previews.run(async (isCurrent) => {
+			if (this.closed) return;
+			await this.renderFileView(file, state, isCurrent);
 		});
-		await this.previewQueue;
 	}
 
-	private async renderFileView(file: TFile, state: any, request: number) {
+	private async renderFileView(file: TFile, state: any, isCurrent: () => boolean) {
 		if (this.fileLeaf) {
 			await this.fileLeaf.openFile(file, {
 				active: false,
 				eState: state,
 			});
-			if (this.closed || request !== this.previewRequest) return;
+			if (this.closed || !isCurrent()) return;
 
 			if (
 				this.fileState?.match?.matches[0] ===
@@ -2497,7 +2491,7 @@ class FloatSearchModal extends Modal {
 				this.fileState
 			) {
 				setTimeout(() => {
-					if (!this.closed && request === this.previewRequest && this.fileLeaf) {
+					if (!this.closed && isCurrent() && this.fileLeaf) {
 						this.plugin.app.workspace.setActiveLeaf(this.fileLeaf, {
 							focus: true,
 						});
@@ -2506,7 +2500,7 @@ class FloatSearchModal extends Modal {
 			} else {
 				this.fileState = state;
 				setTimeout(() => {
-					if (this.closed || request !== this.previewRequest) return;
+					if (this.closed || !isCurrent()) return;
 					(
 						this.searchLeaf.view as SearchView
 					).searchComponent?.inputEl?.focus();
@@ -2555,25 +2549,11 @@ class FloatSearchModal extends Modal {
 			active: false,
 			eState: state,
 		});
-		if (this.closed || request !== this.previewRequest) return;
+		if (this.closed || !isCurrent()) return;
 		this.fileState = state;
 
 		(this.searchLeaf.view as SearchView).searchComponent?.inputEl?.focus();
 	}
-}
-
-interface CmdkResult {
-	file: TFile;
-	nameMatch: SearchResult | null;
-	pathMatch: SearchResult | null;
-	heading?: string;
-	headingMatch?: SearchResult | null;
-	content?: string;
-	contentMatch?: SearchResult | null;
-	line?: number;
-	type: "file" | "heading" | "content" | "create" | "saved" | "save";
-	createQuery?: string;
-	savedQuery?: string;
 }
 
 class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
@@ -2590,8 +2570,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		this.updateSuggestions();
 	};
 	private closed = false;
-	private previewRequest = 0;
-	private previewQueue: Promise<void> = Promise.resolve();
+	private readonly previews = new LatestQueue();
 	private debouncedUpdate = debounce(() => this.runSearch(), 150);
 	private activeFilters: string[] = [];
 	private filterMatchSets: Map<string, Set<string>> | null = null;
@@ -2781,12 +2760,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				(s) => s.query.trim() === trimmed
 			)
 		) {
-			extra.push({
-				file: null as any,
-				nameMatch: null,
-				pathMatch: null,
-				type: "save",
-			});
+			extra.push({ type: "save" });
 		}
 
 		// Empty query — show launcher (saved) + recent files, filtered by active chips
@@ -2814,20 +2788,14 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		const query = parseQuery(trimmed);
 		this.liveQuery = query;
 		this.liveHasContent = requiresContent(query);
-		const pureText = query.groups.every((g) =>
-			g.every((c) => c.kind === "text" && !c.negated)
-		);
-		const textTokens = query.groups
-			.flat()
-			.map((c) => (c.kind === "text" && !c.negated ? c.value.trim() : ""))
-			.filter((v) => v !== "");
-		const fuzzyText = textTokens.join(" ");
+		const pureText = isPlainText(query);
+		const fuzzyText = freeText(query);
 		const fuzzy = fuzzyText
 			? (text: string) =>
 					matchAsSearchResult(this.plugin, text, fuzzyText)
 			: null;
 
-		const fileResults: CmdkResult[] = [];
+		const fileResults: FileResult[] = [];
 
 		// When the query needs file bodies (content operators), the file list
 		// is produced by the async content phase to avoid false positives.
@@ -2875,7 +2843,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			(r) => r.file.basename.toLowerCase() === queryLower
 		);
 
-		const resultsToShow = fileResults
+		const resultsToShow: CmdkResult[] = fileResults
 			.filter((r) => this.matchesFilters(r.file))
 			.slice(0, this.limit);
 
@@ -2886,13 +2854,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			pureText &&
 			trimmed.length > 0
 		) {
-			resultsToShow.push({
-				file: null as any,
-				nameMatch: null,
-				pathMatch: null,
-				type: "create",
-				createQuery: trimmed,
-			});
+			resultsToShow.push({ type: "create", createQuery: trimmed });
 		}
 
 		// Render file results immediately
@@ -2978,17 +2940,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
 		const contentMode = this.liveHasContent;
 		// Fuzzy-text mode: a plain free-text search across file bodies.
-		const fuzzyText = contentMode
-			? ""
-			: query.groups
-					.flat()
-					.map((c) =>
-						c.kind === "text" && !c.negated
-							? c.value.trim()
-							: ""
-					)
-					.filter((v) => v !== "")
-					.join(" ");
+		const fuzzyText = contentMode ? "" : freeText(query);
 		const simpleSearch =
 			!contentMode && fuzzyText
 				? (text: string) =>
@@ -3023,26 +2975,8 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				if (!contentMode && !this.matchesFilters(file)) continue;
 
 				let text: string;
-				// Candidate ④: read through the plugin-scoped, warm content
-				// cache — shared across every CMDK open, so repeated opens
-				// (and other searchers) almost never re-read file bodies.
-				const cached = this.plugin.contentCache.get(file.path);
 				try {
-					if (cached && cached.mtime === file.stat.mtime) {
-						text = cached.text;
-						// Touch for true LRU: re-insert so the entry moves to
-						// the most-recent position and eviction drops the
-						// least-recently-used file instead of the oldest.
-						this.plugin.contentCache.delete(file.path);
-						this.plugin.contentCache.set(file.path, cached);
-					} else {
-						text = await this.app.vault.cachedRead(file);
-						this.plugin.cacheFileContent(
-							file.path,
-							file.stat.mtime,
-							text
-						);
-					}
+					text = await this.plugin.readContent(file);
 				} catch {
 					continue;
 				}
@@ -3061,7 +2995,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 						contentMatch: null,
 						line: lineInfo.line,
 						type: "content",
-					} as CmdkResult);
+					});
 					added++;
 					if (added >= MAX_CONTENT_RESULTS) return;
 					continue;
@@ -3095,7 +3029,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 					contentMatch: lineMatch,
 					line,
 					type: "content",
-				} as CmdkResult);
+				});
 				added++;
 				if (added >= MAX_CONTENT_RESULTS) return;
 			}
@@ -3167,7 +3101,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		if (result.type === "save") {
 			const contentEl = el.createDiv("suggestion-content");
 			const titleEl = contentEl.createDiv("suggestion-title");
-			titleEl.setText(t("saveCurrentTitle"));
+			titleEl.setText(strings().saveCurrentTitle);
 			const noteEl = contentEl.createDiv("suggestion-note");
 			noteEl.setText(this.inputEl.value.trim());
 			const auxEl = el.createDiv("suggestion-aux");
@@ -3230,7 +3164,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		evt: MouseEvent | KeyboardEvent
 	) {
 		if (result.type === "create") {
-			this.quickCreateNote(result.createQuery ?? "", evt);
+			void this.quickCreateNote(result.createQuery, evt);
 			return;
 		}
 
@@ -3251,18 +3185,9 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			: this.app.workspace.getMostRecentLeaf() ??
 				this.app.workspace.getLeaf();
 
-		const eState: Record<string, any> = {};
-		if (result.type === "heading" && result.heading) {
-			eState.subpath = "#" + result.heading;
-		} else if (result.type === "content" && result.line != null) {
-			eState.line = result.line;
-		}
-
-		leaf.openFile(result.file, { active: true }).then(() => {
-			if (eState.subpath || eState.line != null) {
-				leaf.setEphemeralState(eState);
-			}
-		});
+		const eState = ephemeralStateFor(result);
+		await leaf.openFile(result.file, { active: true });
+		if (eState) leaf.setEphemeralState(eState);
 	}
 
 	private async quickCreateNote(
@@ -3295,35 +3220,33 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 	// @ts-ignore
 	onSelectedChange = debounce(
 		(result: CmdkResult, _evt: Event | null) => {
-			if (result?.type === "create" || !result?.file) {
-				this.hidePreview();
-			} else {
+			if (result && isFileResult(result)) {
 				this.showPreview(result);
+			} else {
+				this.hidePreview();
 			}
 		},
 		100
 	);
 
 	private hidePreview() {
-		this.previewRequest++;
+		this.previews.invalidate();
 		this.modalEl.removeClass("float-search-cmdk-expanded");
 		if (this.previewEl) {
 			this.previewEl.hide();
 		}
 	}
 
-	async showPreview(result: CmdkResult) {
+	async showPreview(result: FileResult) {
 		if (this.closed) return;
 		this.previewEl?.hide();
-		const request = ++this.previewRequest;
-		this.previewQueue = this.previewQueue.catch(() => {}).then(async () => {
-			if (this.closed || request !== this.previewRequest) return;
-			await this.renderPreview(result, request);
+		await this.previews.run(async (isCurrent) => {
+			if (this.closed) return;
+			await this.renderPreview(result, isCurrent);
 		});
-		await this.previewQueue;
 	}
 
-	private async renderPreview(result: CmdkResult, request: number) {
+	private async renderPreview(result: FileResult, isCurrent: () => boolean) {
 		if (!this.previewEl) {
 			this.previewEl = this.bodyEl.createDiv(
 				"float-search-cmdk-preview"
@@ -3342,20 +3265,12 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		const file = result.file;
 		const leaf = this.fileLeaf!;
 		await leaf.openFile(file, { active: false });
-		if (this.closed || request !== this.previewRequest) return;
+		if (this.closed || !isCurrent()) return;
 		this.previewEl.show();
 		this.modalEl.addClass("float-search-cmdk-expanded");
 
-		const eState: Record<string, any> = {};
-		if (result.type === "heading" && result.heading) {
-			eState.subpath = "#" + result.heading;
-		} else if (result.type === "content" && result.line != null) {
-			eState.line = result.line;
-		}
-
-		if (eState.subpath || eState.line != null) {
-			leaf.setEphemeralState(eState);
-		}
+		const eState = ephemeralStateFor(result);
+		if (eState) leaf.setEphemeralState(eState);
 
 		this.inputEl.focus();
 	}

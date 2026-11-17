@@ -367,7 +367,7 @@ test('CMDK and native regex share case and multiline anchor semantics', () => {
       for (const sample of ['before\nneedle\nafter', 'before\nNEEDLE\nafter', 'folder/note', 'needles', 'invalid[']) {
         // Obsidian's native regex matcher uses gm/gmi; compare observable matches.
         const nativeMatches = native.some((regex) => nativeNonemptyMatch(regex.source, sample, matchCase) !== null);
-        assert.equal(h.filters.textMatches(h.plugin, sample, query), nativeMatches,
+        assert.equal((h.filters.matchAsSearchResult(h.plugin, sample, query) !== null), nativeMatches,
           `Mode mismatch for ${JSON.stringify({ matchCase, query, sample })}`);
       }
     }
@@ -509,6 +509,7 @@ test('plugin unload closes both the native search and CMDK modal', () => {
   h.default.prototype.onunload.call({
     modal: { close() { closed.push('native'); } },
     cmdkModal: { close() { closed.push('cmdk'); } },
+    contentCache: { clear() {} },
   });
   assert.deepEqual(closed.sort(), ['cmdk', 'native']);
 });
