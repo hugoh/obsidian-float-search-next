@@ -42,8 +42,8 @@ describe("Chinese locale", () => {
   });
 
   test("no message is left untranslated", () => {
-    const english = strings() as Record<string, unknown>;
-    const chinese = withLanguage("zh", () => strings() as Record<string, unknown>);
+    const english = strings() as unknown as Record<string, unknown>;
+    const chinese = withLanguage("zh", () => strings() as unknown as Record<string, unknown>);
     const untranslated = Object.keys(english).filter(
       (key) => typeof english[key] === "string" && english[key] === chinese[key],
     );

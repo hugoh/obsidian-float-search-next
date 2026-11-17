@@ -91,6 +91,9 @@ Each entry: what was wrong, why, the fix, and what guards it now.
   `patchedDomChildren`, the `normalizePath` wrapper methods, the legacy
   `filterButtons` migration.
 
+- `floatSearchIndex.ts` (3,300 lines) was split into the plugin (about 1,370),
+  `settingsTab.ts`, `nativeModal.ts`, `cmdkModal.ts` and `namePrompt.ts`.
+
 ## Test coverage added
 
 - Unit (`bun test`, colocated): query parser and filter, regex/case matching,
@@ -109,6 +112,5 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 Tracked from the code review; move a row to the fixes table when done.
 
 - Preview auto-renders notes (other plugins' code blocks run); decision pending.
-- Split the 3,000-line `floatSearchIndex.ts` into modules.
 - The two modals still have separate preview rendering (they differ in layout and focus handling).
 - Lint backlog (`eslint-plugin-obsidianmd`).
