@@ -11,12 +11,9 @@ import {
 	OpenViewState,
 	PaneType,
 	Plugin,
-	prepareFuzzySearch,
-	prepareSimpleSearch,
 	renderResults,
 	SearchResult,
 	requireApiVersion,
-	Scope,
 	SearchView,
 	setIcon,
 	PluginSettingTab,
@@ -24,7 +21,6 @@ import {
 	SuggestModal,
 	TAbstractFile,
 	TFile,
-	ViewStateResult,
 	Workspace,
 	WorkspaceContainer,
 	WorkspaceItem,
@@ -33,6 +29,16 @@ import {
 import { EmbeddedView, isEmebeddedLeaf, spawnLeafView } from "./leafView";
 import { around } from "monkey-around";
 import { debounce } from "obsidian";
+import { strings } from "./i18n";
+import {
+	applyNativeResultFilters,
+	bindNativeRegexSearch,
+	isFileAllowed,
+	getBookmarkedPaths,
+	matchAsSearchResult,
+	mountFilterBar,
+	watchNativeSearchResults,
+} from "./filterBar";
 
 type sortOrder =
 	| "alphabetical"
@@ -71,6 +77,11 @@ interface FloatSearchSettings {
 	cmdkQuickCreate: boolean;
 	cmdkQuickCreateFolder: string;
 	cmdkQuickCreateTitleFormat: string;
+	filterIncludeBases: boolean;
+	filterIncludeCanvas: boolean;
+	filterStarredOnly: boolean;
+	filterMatchCase: boolean;
+	filterUseRegex: boolean;
 }
 
 const DEFAULT_SETTINGS: FloatSearchSettings = {
@@ -90,6 +101,11 @@ const DEFAULT_SETTINGS: FloatSearchSettings = {
 	cmdkQuickCreate: false,
 	cmdkQuickCreateFolder: "",
 	cmdkQuickCreateTitleFormat: "YYYYMMDDHHmmss",
+	filterIncludeBases: true,
+	filterIncludeCanvas: true,
+	filterStarredOnly: false,
+	filterMatchCase: false,
+	filterUseRegex: false,
 };
 
 const allViews: viewType[] = [
@@ -147,8 +163,8 @@ export default class FloatSearchPlugin extends Plugin {
 	private modal: FloatSearchModal;
 	private cmdkModal: FloatSearchCmdkModal;
 
-	allLoaded: boolean = false;
-	queryLoaded: boolean = false;
+	allLoaded = false;
+	queryLoaded = false;
 
 	patchedDomChildren = false;
 
@@ -194,10 +210,11 @@ export default class FloatSearchPlugin extends Plugin {
 		this.registerObsidianCommands();
 		this.registerEditorMenuHandler();
 		this.registerContextMenuHandler();
+		this.registerRibbonIcon();
 
 		this.addRibbonIcon(
-			"search",
-			`Search obsidian in ${this.settings.defaultViewType} view`,
+			"float-search-window",
+			strings().ribbonSearch(this.settings.defaultViewType),
 			() => {
 				if (this.settings.defaultViewType === "modal") {
 					this.initModal(this.state, true, true);
@@ -220,6 +237,7 @@ export default class FloatSearchPlugin extends Plugin {
 	onunload() {
 		// this.state = DEFAULT_SETTINGS.searchViewState;
 		this.modal?.close();
+		this.cmdkModal?.close();
 	}
 
 	registerDoubleKeyHandler() {
@@ -284,8 +302,8 @@ export default class FloatSearchPlugin extends Plugin {
 
 	initModal(
 		state: searchState,
-		stateSave: boolean = false,
-		clearQuery: boolean = false
+		stateSave = false,
+		clearQuery = false
 	) {
 		if (this.modal) {
 			this.modal.close();
@@ -310,6 +328,8 @@ export default class FloatSearchPlugin extends Plugin {
 
 	patchWorkspace() {
 		let layoutChanging = false;
+		// Keep the plugin receiver across native method wrappers.
+		// eslint-disable-next-line @typescript-eslint/no-this-alias
 		const self = this;
 		const uninstaller = around(Workspace.prototype, {
 			getLeaf: (next) =>
@@ -469,9 +489,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 						const view = old.call(this, file, openState);
 						setTimeout(() => {
-							const fsCtnEl = (
-								this.parent.containerEl as HTMLElement
-							).parentElement;
+							const fsCtnEl = this.parent?.containerEl?.parentElement;
 							if (!fsCtnEl?.classList.contains("fs-content"))
 								return;
 							if (file.extension != "canvas") return;
@@ -522,7 +540,7 @@ export default class FloatSearchPlugin extends Plugin {
 			originLeaf?: WorkspaceLeaf
 		) => {
 			menu.dom.toggleClass("float-search-view-menu", true);
-			let availableViews = allViews.filter((view) => {
+			const availableViews = allViews.filter((view) => {
 				if (current === "split") {
 					return view.type !== "tab";
 				} else {
@@ -531,7 +549,7 @@ export default class FloatSearchPlugin extends Plugin {
 			});
 			for (const view of availableViews) {
 				menu.addItem((item: MenuItem) => {
-					item.setTitle(`${view.type} view`)
+					item.setTitle(strings().viewTypeMenu(view.type))
 						.setIcon(`${view.icon}`)
 						.onClick(async () => {
 							if (view.type === "modal") {
@@ -582,7 +600,9 @@ export default class FloatSearchPlugin extends Plugin {
 			}
 
 			const searchView = searchLeaf?.view as any;
-			const self = this;
+			// Keep the plugin receiver across native method wrappers.
+		// eslint-disable-next-line @typescript-eslint/no-this-alias
+		const self = this;
 
 			if (!searchView) return false;
 
@@ -603,7 +623,7 @@ export default class FloatSearchPlugin extends Plugin {
 							);
 							viewSwitchButton
 								.setIcon("layout-template")
-								.setTooltip("Switch to File View");
+								.setTooltip(strings().switchToFileView);
 							viewSwitchButton.onClick(() => {
 								const currentType = checkCurrentViewType(
 									this.leaf
@@ -628,7 +648,7 @@ export default class FloatSearchPlugin extends Plugin {
 								this.hidePathToggle = new Setting(
 									this.searchParamsContainerEl
 								)
-									.setName("Show file path")
+									.setName(strings().showFilePath)
 									.addToggle((toggle) => {
 										toggle.toggleEl.toggleClass(
 											"mod-small",
@@ -650,7 +670,7 @@ export default class FloatSearchPlugin extends Plugin {
 								this.showInstructionsToggle = new Setting(
 									this.searchParamsContainerEl
 								)
-									.setName("Show instructions")
+									.setName(strings().showInstructions)
 									.addToggle((toggle) => {
 										toggle.toggleEl.toggleClass(
 											"mod-small",
@@ -671,14 +691,15 @@ export default class FloatSearchPlugin extends Plugin {
 								this.defaultViewTypeDropdown = new Setting(
 									this.searchParamsContainerEl
 								)
-									.setName("Default view type")
+									.setName(strings().defaultViewType)
 									.addDropdown((dropdown) => {
+										const viewLabels = strings().viewType;
 										dropdown.addOptions({
-											modal: "Modal",
-											split: "Split",
-											tab: "Tab",
-											window: "Window",
-											sidebar: "Sidebar",
+											modal: viewLabels.modal,
+											split: viewLabels.split,
+											tab: viewLabels.tab,
+											window: viewLabels.window,
+											sidebar: viewLabels.sidebar,
 										});
 										dropdown.setValue(
 											self.settings.defaultViewType
@@ -819,7 +840,6 @@ export default class FloatSearchPlugin extends Plugin {
 			if (!searchView) return false;
 
 			const dom = searchView.dom.constructor;
-			const self = this;
 
 			this.register(
 				around(dom.prototype, {
@@ -838,7 +858,7 @@ export default class FloatSearchPlugin extends Plugin {
 										cls: "search-result-file-path-icon",
 									});
 									setIcon(pathIconEl, "folder");
-									const pathTextEl = pathEl.createDiv({
+									pathEl.createDiv({
 										cls: "search-result-file-path-text",
 										text: path,
 									});
@@ -868,6 +888,8 @@ export default class FloatSearchPlugin extends Plugin {
 	patchDragManager() {
 		const manager = this.app.dragManager;
 		if (!manager) return;
+		// Keep the plugin receiver across native method wrappers.
+		// eslint-disable-next-line @typescript-eslint/no-this-alias
 		const self = this;
 
 		this.register(
@@ -888,21 +910,21 @@ export default class FloatSearchPlugin extends Plugin {
 
 	registerObsidianURIHandler() {
 		/**
-		 * Handles obsidian://fs protocol for search functionality
-		 *
-		 * @param viewType - Where to open search:
-		 *   - "modal" (default) - Opens in modal popup
-		 *   - "tab" - Opens in new tab
-		 *   - "split" - Opens in split pane
-		 *   - "window" - Opens in new window
-		 *   - "sidebar" - Opens in sidebar
-		 * @param query - Search query string
-		 *
-		 * Examples:
-		 * obsidian://fs?query=hello&viewType=modal
-		 * obsidian://fs?query=world&viewType=tab
-		 * obsidian://fs?query=test (defaults to modal)
-		 */
+		* Handles obsidian://fs protocol for search functionality
+		*
+		* @param viewType - Where to open search:
+		*   - "modal" (default) - Opens in modal popup
+		*   - "tab" - Opens in new tab
+		*   - "split" - Opens in split pane
+		*   - "window" - Opens in new window
+		*   - "sidebar" - Opens in sidebar
+		* @param query - Search query string
+		*
+		* Examples:
+		* obsidian://fs?query=hello&viewType=modal
+		* obsidian://fs?query=world&viewType=tab
+		* obsidian://fs?query=test (defaults to modal)
+		*/
 		this.registerObsidianProtocolHandler(
 			"fs",
 			async (path: ObsidianProtocolData) => {
@@ -1010,7 +1032,7 @@ export default class FloatSearchPlugin extends Plugin {
 	registerObsidianCommands() {
 		this.addCommand({
 			id: "show-or-hide-file-path",
-			name: "Show/hide file path",
+			name: strings().cmdShowHideFilePath,
 			callback: () => {
 				this.changeFilePathVisibility();
 			},
@@ -1018,7 +1040,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 		this.addCommand({
 			id: "search-obsidian-globally",
-			name: "Search obsidian globally",
+			name: strings().cmdSearchGlobally,
 			callback: () =>
 				this.initModal(
 					{ ...this.state, query: "", current: false },
@@ -1029,7 +1051,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 		this.addCommand({
 			id: "search-obsidian-globally-state",
-			name: "Search Obsidian Globally (With Last State)",
+			name: strings().cmdSearchGloballyState,
 			callback: () =>
 				this.initModal(
 					{ ...this.state, query: this.state.query, current: false },
@@ -1040,7 +1062,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 		this.createCommand({
 			id: "search-in-backlink",
-			name: "Search in backlink Of current file",
+			name: strings().cmdSearchBacklink,
 			queryBuilder: (file?: TFile) => {
 				if (!file) return "";
 				return (
@@ -1054,7 +1076,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 		this.createCommand({
 			id: "search-in-current-file",
-			name: "Search in current file",
+			name: strings().cmdSearchCurrentFile,
 			queryBuilder: (file?: TFile) => {
 				if (!file) return "";
 				return " path:" + `"${file.path}"`;
@@ -1068,12 +1090,12 @@ export default class FloatSearchPlugin extends Plugin {
 		for (const type of ["split", "tab", "window"] as PaneType[]) {
 			this.addCommand({
 				id: `open-search-view-${type}`,
-				name: `Open search view (${type})`,
+				name: strings().cmdOpenSearchView(type),
 				callback: async () => {
 					const existingLeaf =
 						this.app.workspace.getLeavesOfType("search");
 					switch (type) {
-						case "window":
+						case "window": {
 							// @ts-ignore
 							const isExistingWindowLeaf = existingLeaf.find(
 								(leaf) =>
@@ -1090,8 +1112,9 @@ export default class FloatSearchPlugin extends Plugin {
 								triggerBySelf: true,
 							});
 							break;
+						}
 						case "tab":
-						case "split":
+						case "split": {
 							// @ts-ignore
 							const isExistingLeaf = existingLeaf.find(
 								(leaf) => !leaf.parentSplit.parent.side
@@ -1113,6 +1136,7 @@ export default class FloatSearchPlugin extends Plugin {
 								triggerBySelf: true,
 							});
 							break;
+						}
 					}
 				},
 			});
@@ -1120,70 +1144,71 @@ export default class FloatSearchPlugin extends Plugin {
 	}
 
 	registerSearchOperatorCommands() {
+		const s = strings();
 		const searchOperators = [
 			{
 				id: "search-file-operator",
-				name: "Search: file: (Find text in filename)",
+				name: s.cmdSearchFile,
 				query: "file:",
 			},
 			{
 				id: "search-path-operator",
-				name: "Search: path: (Find text in file path)",
+				name: s.cmdSearchPath,
 				query: "path:",
 			},
 			{
 				id: "search-content-operator",
-				name: "Search: content: (Find text in file content)",
+				name: s.cmdSearchContent,
 				query: "content:",
 			},
 			{
 				id: "search-match-case-operator",
-				name: "Search: match-case: (Case-sensitive match)",
+				name: s.cmdSearchMatchCase,
 				query: "match-case:",
 			},
 			{
 				id: "search-ignore-case-operator",
-				name: "Search: ignore-case: (Case-insensitive match)",
+				name: s.cmdSearchIgnoreCase,
 				query: "ignore-case:",
 			},
 			{
 				id: "search-tag-operator",
-				name: "Search: tag: (Find tag)",
+				name: s.cmdSearchTag,
 				query: "tag:",
 			},
 			{
 				id: "search-line-operator",
-				name: "Search: line: (Find files with matching line)",
+				name: s.cmdSearchLine,
 				query: "line:",
 			},
 			{
 				id: "search-block-operator",
-				name: "Search: block: (Find matches in the same block)",
+				name: s.cmdSearchBlock,
 				query: "block:",
 			},
 			{
 				id: "search-section-operator",
-				name: "Search: section: (Find matches in the same section)",
+				name: s.cmdSearchSection,
 				query: "section:",
 			},
 			{
 				id: "search-task-operator",
-				name: "Search: task: (Find matches in a task)",
+				name: s.cmdSearchTask,
 				query: "task:",
 			},
 			{
 				id: "search-task-todo-operator",
-				name: "Search: task-todo: (Find matches in uncompleted tasks)",
+				name: s.cmdSearchTaskTodo,
 				query: "task-todo:",
 			},
 			{
 				id: "search-task-done-operator",
-				name: "Search: task-done: (Find matches in completed tasks)",
+				name: s.cmdSearchTaskDone,
 				query: "task-done:",
 			},
 			{
 				id: "search-property",
-				name: "Search: [property] or [property:value]",
+				name: s.cmdSearchProperty,
 				query: "[]",
 			},
 		];
@@ -1227,9 +1252,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 					menu.addItem((item) => {
 						// Add sub menu
-						item.setTitle(
-							'Search "' + searchWord + '"' + " in Float Search"
-						)
+						item.setTitle(strings().menuSearchInFloat(searchWord))
 							.setIcon("search")
 							.onClick(() =>
 								this.initModal(
@@ -1264,7 +1287,7 @@ export default class FloatSearchPlugin extends Plugin {
 					if (file instanceof TFile && !popover && !leaf) {
 						menu.addItem((item) => {
 							item.setIcon("popup-open")
-								.setTitle("Open in Float Preview")
+								.setTitle(strings().menuOpenInFloatPreview)
 								.onClick(async () => {
 									if (this.modal) {
 										await this.modal.initFileView(
@@ -1292,6 +1315,15 @@ export default class FloatSearchPlugin extends Plugin {
 					}
 				}
 			)
+		);
+	}
+
+	registerRibbonIcon() {
+		// Phosphor Bold: app-window + magnifying-glass (MIT)
+		// https://phosphoricons.com/  256 viewBox scaled into Obsidian's 100x100 icon slot
+		addIcon(
+			"float-search-window",
+			`<g transform="translate(3 10) scale(0.275)" fill="currentColor"><path d="M216,36H40A20,20,0,0,0,20,56V200a20,20,0,0,0,20,20H216a20,20,0,0,0,20-20V56A20,20,0,0,0,216,36Zm-4,160H44V60H212ZM60,92a16,16,0,1,1,16,16A16,16,0,0,1,60,92Zm48,0a16,16,0,1,1,16,16A16,16,0,0,1,108,92Z"/></g><g transform="translate(38 38) scale(0.24)" fill="currentColor"><path d="M232.49,215.51,185,168a92.12,92.12,0,1,0-17,17l47.53,47.54a12,12,0,0,0,17-17ZM44,112a68,68,0,1,1,68,68A68.07,68.07,0,0,1,44,112Z"/></g>`
 		);
 	}
 
@@ -1327,16 +1359,22 @@ export default class FloatSearchPlugin extends Plugin {
 	}
 }
 
-const TRIGGER_KEY_OPTIONS: Record<CmdkTriggerKey, string> = {
-	Shift: "Double Shift",
-	Control: "Double Ctrl",
-	Alt: "Double Alt",
-	Meta: "Double Meta (Cmd/Win)",
-	none: "Disabled",
+const triggerKeyOptions = (): Record<CmdkTriggerKey, string> => {
+	const s = strings();
+	return {
+		Shift: s.triggerShift,
+		Control: s.triggerControl,
+		Alt: s.triggerAlt,
+		Meta: s.triggerMeta,
+		none: s.triggerNone,
+	};
 };
+
+type SettingsTabId = "general" | "quick-search" | "quick-create";
 
 class FloatSearchSettingTab extends PluginSettingTab {
 	plugin: FloatSearchPlugin;
+	private activeTab: SettingsTabId = "general";
 
 	constructor(app: App, plugin: FloatSearchPlugin) {
 		super(app, plugin);
@@ -1345,18 +1383,95 @@ class FloatSearchSettingTab extends PluginSettingTab {
 
 	display() {
 		const { containerEl } = this;
+		const s = strings();
 		containerEl.empty();
+		containerEl.addClass("float-search-settings-tab");
 
-		containerEl.createEl("h2", { text: "Float Search Settings" });
+		containerEl.createEl("h3", { text: s.settingsTitle });
+		containerEl.createEl("p", {
+			cls: "float-search-settings-intro",
+			text: s.pluginIntro,
+		});
 
-		new Setting(containerEl)
-			.setName("Quick search trigger")
-			.setDesc(
-				"Double-tap this key to open the quick search modal (CMDK)."
-			)
+		const tabsContainer = containerEl.createDiv({
+			cls: "float-search-settings-tabs-container",
+		});
+		const tabsList: { id: SettingsTabId; name: string }[] = [
+			{ id: "general", name: s.tabGeneral },
+			{ id: "quick-search", name: s.tabQuickSearch },
+			{ id: "quick-create", name: s.tabQuickCreate },
+		];
+		for (const tab of tabsList) {
+			const btn = tabsContainer.createEl("button", { text: tab.name });
+			if (this.activeTab === tab.id) btn.addClass("is-active");
+			btn.onclick = () => {
+				this.activeTab = tab.id;
+				this.display();
+			};
+		}
+
+		const content = containerEl.createDiv({
+			cls: "float-search-settings-content",
+		});
+		if (this.activeTab === "general") this.renderGeneral(content, s);
+		else if (this.activeTab === "quick-search")
+			this.renderQuickSearch(content, s);
+		else this.renderQuickCreate(content, s);
+	}
+
+	private renderGeneral(container: HTMLElement, s: ReturnType<typeof strings>) {
+		new Setting(container)
+			.setName(s.defaultViewType)
+			.addDropdown((dropdown) => {
+				const viewLabels = s.viewType;
+				dropdown.addOptions({
+					modal: viewLabels.modal,
+					split: viewLabels.split,
+					tab: viewLabels.tab,
+					window: viewLabels.window,
+					sidebar: viewLabels.sidebar,
+				});
+				dropdown.setValue(this.plugin.settings.defaultViewType);
+				dropdown.onChange((value) => {
+					this.plugin.settings.defaultViewType = value as searchType;
+					this.plugin.applySettingsUpdate();
+				});
+			});
+
+		new Setting(container)
+			.setName(s.showFilePath)
+			.addToggle((toggle) => {
+				toggle
+					.setValue(this.plugin.settings.showFilePath)
+					.onChange(async (value) => {
+						this.plugin.settings.showFilePath = value;
+						this.plugin.updateFilePathVisibility();
+						this.plugin.applySettingsUpdate();
+					});
+			});
+
+		new Setting(container)
+			.setName(s.showInstructions)
+			.addToggle((toggle) => {
+				toggle
+					.setValue(this.plugin.settings.showInstructions)
+					.onChange(async (value) => {
+						this.plugin.settings.showInstructions = value;
+						this.plugin.applySettingsUpdate();
+					});
+			});
+	}
+
+	private renderQuickSearch(
+		container: HTMLElement,
+		s: ReturnType<typeof strings>
+	) {
+		new Setting(container)
+			.setName(s.quickSearchTrigger)
+			.setDesc(s.quickSearchTriggerDesc)
 			.addDropdown((dropdown) => {
 				for (const [value, label] of Object.entries(
-					TRIGGER_KEY_OPTIONS
+					triggerKeyOptions()
 				)) {
 					dropdown.addOption(value, label);
 				}
@@ -1368,30 +1483,28 @@ class FloatSearchSettingTab extends PluginSettingTab {
 				});
 			});
 
-		new Setting(containerEl)
-			.setName("Double-tap interval (ms)")
-			.setDesc(
-				"Maximum time between two key presses to trigger quick search. Default: 300ms."
-			)
+		new Setting(container)
+			.setName(s.doubleTapInterval)
+			.setDesc(s.doubleTapIntervalDesc)
 			.addSlider((slider) => {
 				slider
 					.setLimits(150, 600, 50)
 					.setValue(this.plugin.settings.cmdkDoubleTapInterval)
 					.setDynamicTooltip()
 					.onChange(async (value) => {
-						this.plugin.settings.cmdkDoubleTapInterval =
-							value;
+						this.plugin.settings.cmdkDoubleTapInterval = value;
 						await this.plugin.saveSettings();
 					});
 			});
+	}
 
-		containerEl.createEl("h3", { text: "Quick Create" });
-
-		new Setting(containerEl)
-			.setName("Enable quick create")
-			.setDesc(
-				"When no exact match is found in quick search, show an option to create a new note with the search text as content."
-			)
+	private renderQuickCreate(
+		container: HTMLElement,
+		s: ReturnType<typeof strings>
+	) {
+		new Setting(container)
+			.setName(s.enableQuickCreate)
+			.setDesc(s.enableQuickCreateDesc)
 			.addToggle((toggle) => {
 				toggle
 					.setValue(this.plugin.settings.cmdkQuickCreate)
@@ -1401,31 +1514,24 @@ class FloatSearchSettingTab extends PluginSettingTab {
 					});
 			});
 
-		new Setting(containerEl)
-			.setName("Quick create folder")
-			.setDesc(
-				"Folder to create new notes in. Leave empty for vault root."
-			)
+		new Setting(container)
+			.setName(s.quickCreateFolder)
+			.setDesc(s.quickCreateFolderDesc)
 			.addText((text) => {
-				text.setPlaceholder("e.g. Inbox")
+				text.setPlaceholder(s.quickCreateFolderPlaceholder)
 					.setValue(this.plugin.settings.cmdkQuickCreateFolder)
 					.onChange(async (value) => {
-						this.plugin.settings.cmdkQuickCreateFolder =
-							value;
+						this.plugin.settings.cmdkQuickCreateFolder = value;
 						await this.plugin.saveSettings();
 					});
 			});
 
-		new Setting(containerEl)
-			.setName("Title format")
-			.setDesc(
-				"Timestamp format for the note title. Tokens: YYYY, MM, DD, HH, mm, ss."
-			)
+		new Setting(container)
+			.setName(s.titleFormat)
+			.setDesc(s.titleFormatDesc)
 			.addText((text) => {
 				text.setPlaceholder("YYYYMMDDHHmmss")
-					.setValue(
-						this.plugin.settings.cmdkQuickCreateTitleFormat
-					)
+					.setValue(this.plugin.settings.cmdkQuickCreateTitleFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.cmdkQuickCreateTitleFormat =
 							value;
@@ -1458,7 +1564,7 @@ function createInstructionElement(
 class FloatSearchModal extends Modal {
 	private readonly plugin: FloatSearchPlugin;
 	private searchEmbeddedView: EmbeddedView;
-	private fileEmbeddedView: EmbeddedView;
+	private fileEmbeddedView: EmbeddedView | undefined;
 
 	searchLeaf: WorkspaceLeaf;
 	fileLeaf: WorkspaceLeaf | undefined;
@@ -1469,11 +1575,17 @@ class FloatSearchModal extends Modal {
 	private fileState: any;
 
 	private searchCtnEl: HTMLElement;
+	private unwatchFilters: (() => void) | null = null;
+	private unbindNativeQuery: (() => void) | null = null;
 	private instructionsEl: HTMLElement;
 	private fileEl: HTMLElement;
 	private viewType: string;
 
 	private focusdItem: any;
+	private closed = false;
+	private previewRequest = 0;
+	private previewQueue: Promise<void> = Promise.resolve();
+	private inputCleanup: (() => void) | null = null;
 
 	private debouncedAutoPreview = debounce(() => {
 		this.autoPreviewFocusedItem();
@@ -1483,7 +1595,7 @@ class FloatSearchModal extends Modal {
 		cb: (state: any) => void,
 		plugin: FloatSearchPlugin,
 		state: any,
-		viewType: string = "search"
+		viewType = "search"
 	) {
 		super(plugin.app);
 		this.plugin = plugin;
@@ -1493,6 +1605,7 @@ class FloatSearchModal extends Modal {
 	}
 
 	async onOpen() {
+		this.closed = false;
 		const { contentEl, containerEl, modalEl } = this;
 
 		this.searchCtnEl = contentEl.createDiv({
@@ -1505,18 +1618,32 @@ class FloatSearchModal extends Modal {
 		this.initInstructions(this.instructionsEl);
 		this.initCss(contentEl, modalEl, containerEl);
 		await this.initSearchView(this.searchCtnEl);
+		if (this.closed) {
+			this.searchLeaf?.detach();
+			return;
+		}
+		this.initFilterBar();
 		this.initInput();
 		this.initContent();
 	}
 
 	onClose() {
+		this.closed = true;
+		this.debouncedAutoPreview.cancel();
+		this.inputCleanup?.();
+		this.inputCleanup = null;
+		this.clearPreview();
 		const { contentEl } = this;
+		this.unwatchFilters?.();
+		this.unwatchFilters = null;
+		this.unbindNativeQuery?.();
+		this.unbindNativeQuery = null;
 
-		this.cb(this.searchLeaf.view.getState());
+		if (this.searchLeaf) this.cb(this.searchLeaf.view.getState());
 
-		this.searchLeaf.detach();
+		this.searchLeaf?.detach();
 		this.fileLeaf?.detach();
-		this.searchEmbeddedView.unload();
+		this.searchEmbeddedView?.unload();
 		this.fileEmbeddedView?.unload();
 		contentEl.empty();
 	}
@@ -1525,53 +1652,54 @@ class FloatSearchModal extends Modal {
 		if (!this.plugin.settings.showInstructions) {
 			return;
 		}
-		const navigate = createInstructionElement(
+		const s = strings();
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-navigate",
 			"↑↓",
-			"Navigate"
+			s.instrNavigate
 		);
-		const collapse = createInstructionElement(
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-collapse",
 			"Shift+↑↓",
-			"Collapse/Expand"
+			s.instrCollapse
 		);
-		const enter = createInstructionElement(
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-enter",
 			"↵",
-			"Open in background"
+			s.instrOpenBackground
 		);
-		const altEnter = createInstructionElement(
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-alt-enter",
 			"Alt+↵",
-			"Open File and Close"
+			s.instrOpenAndClose
 		);
-		const ctrlEnter = createInstructionElement(
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-ctrl-enter",
 			"Ctrl+↵",
-			"Create File When Not Exist"
+			s.instrCreateIfMissing
 		);
-		const tab = createInstructionElement(
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-tab",
 			"Tab/Shift+Tab",
-			"Preview/Close Preview"
+			s.instrPreview
 		);
-		const switchView = createInstructionElement(
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-switch",
 			"Ctrl+G",
-			"Switch Between Search and File View"
+			s.instrSwitchView
 		);
-		const click = createInstructionElement(
+		createInstructionElement(
 			instructionsEl,
 			"float-search-modal-instructions-click",
 			"Alt+Click",
-			"Close Modal While In File View"
+			s.instrAltClick
 		);
 	}
 
@@ -1596,14 +1724,16 @@ class FloatSearchModal extends Modal {
 		this.searchLeaf.setPinned(true);
 		await this.searchLeaf.setViewState({
 			type: "search",
-			state: { ...this.state, triggerBySelf: true },
+			state: { ...this.state, matchingCase: this.plugin.settings.filterMatchCase, triggerBySelf: true },
 		});
 
 		setTimeout(async () => {
+			if (this.closed) return;
 			await this.searchLeaf.view.setState(
-				{ ...this.state, triggerBySelf: true },
+				{ ...this.state, matchingCase: this.plugin.settings.filterMatchCase, triggerBySelf: true },
 				{ history: false }
 			);
+			if (this.closed) return;
 			const searchComponent = (this.searchLeaf.view as SearchView)
 				.searchComponent;
 			if (searchComponent?.inputEl) {
@@ -1612,14 +1742,57 @@ class FloatSearchModal extends Modal {
 					: searchComponent.inputEl.setSelectionRange(
 							0,
 							this.state?.query?.length
-					  );
+					);
 			}
 		}, 0);
 
 		return;
 	}
 
+	private initFilterBar() {
+		const searchRow = this.searchCtnEl.querySelector(".search-row");
+		if (searchRow) {
+			mountFilterBar(searchRow as HTMLElement, this.plugin, () =>
+				this.onFilterChange()
+			);
+		}
+		const view = this.searchLeaf.view as SearchView;
+		this.unbindNativeQuery = bindNativeRegexSearch(view, this.plugin, () => {
+			this.debouncedAutoPreview.cancel();
+			this.clearPreview();
+		});
+		this.syncNativeMatchCase(view);
+		(view as SearchView & { startSearch?: () => void }).startSearch?.();
+		this.unwatchFilters = watchNativeSearchResults(view, this.plugin);
+	}
+
+	private onFilterChange() {
+		this.clearPreview();
+		const view = this.searchLeaf.view as SearchView;
+		this.syncNativeMatchCase(view);
+		(view as SearchView & { startSearch?: () => void }).startSearch?.();
+		applyNativeResultFilters(view, this.plugin);
+	}
+
+	private syncNativeMatchCase(view: SearchView) {
+		const state = view.getState();
+		if (state.matchingCase === this.plugin.settings.filterMatchCase) return;
+		const target = view as SearchView & { setMatchingCase?: (value: boolean) => void };
+		if (typeof target.setMatchingCase === "function") {
+			target.setMatchingCase(this.plugin.settings.filterMatchCase);
+			return;
+		}
+		if (state.matchingCase !== this.plugin.settings.filterMatchCase) {
+			view.setState({
+				...state,
+				matchingCase: this.plugin.settings.filterMatchCase,
+				triggerBySelf: true,
+			}, { history: false });
+		}
+	}
+
 	initInput(retries = 10) {
+		if (this.closed) return;
 		const inputEl = this.contentEl.getElementsByTagName("input")[0];
 		if (!inputEl) {
 			if (retries > 0) {
@@ -1627,8 +1800,20 @@ class FloatSearchModal extends Modal {
 			}
 			return;
 		}
+		const clear = () => {
+			this.debouncedAutoPreview.cancel();
+			this.clearPreview();
+		};
+		inputEl.addEventListener("input", clear);
+		this.inputCleanup = () => {
+			inputEl.removeEventListener("input", clear);
+			inputEl.onkeydown = null;
+		};
 		inputEl.focus();
 		inputEl.onkeydown = (e) => {
+			if (e.isComposing || e.key === "Process" || e.keyCode === 229) {
+				return;
+			}
 			const currentView = this.searchLeaf.view as SearchView;
 			switch (e.key) {
 				case "ArrowDown":
@@ -1666,7 +1851,7 @@ class FloatSearchModal extends Modal {
 					} else {
 						currentView.onKeyArrowUpInFocus(e);
 						this.focusdItem = currentView.dom.focusedItem;
-						if (!currentView.dom.focusedItem.content) {
+						if (!currentView.dom.focusedItem?.content) {
 							this.focusdItem = undefined;
 						}
 						this.debouncedAutoPreview();
@@ -1726,7 +1911,7 @@ class FloatSearchModal extends Modal {
 										content: item.content,
 										matches: item.matches,
 									},
-							  })
+							})
 							: this.initFileView(file, undefined);
 					}
 					break;
@@ -1773,9 +1958,13 @@ class FloatSearchModal extends Modal {
 	}
 
 	private autoPreviewFocusedItem() {
+		if (this.closed) return;
 		const currentView = this.searchLeaf.view as SearchView;
 		const item = currentView.dom?.focusedItem;
-		if (!item) return;
+		if (!item) {
+			this.clearPreview();
+			return;
+		}
 
 		const file =
 			item.parent?.file instanceof TFile
@@ -1790,7 +1979,7 @@ class FloatSearchModal extends Modal {
 							content: item.content,
 							matches: item.matches,
 						},
-				  }
+				}
 				: undefined;
 
 		this.initFileView(file, state);
@@ -1802,7 +1991,7 @@ class FloatSearchModal extends Modal {
 			const resultElement = contentEl.getElementsByClassName(
 				"search-results-children"
 			)[0];
-			if (resultElement.children.length < 2) {
+			if (!resultElement || resultElement.children.length < 2) {
 				return;
 			}
 
@@ -1868,12 +2057,35 @@ class FloatSearchModal extends Modal {
 		};
 	}
 
+	private clearPreview() {
+		this.previewRequest++;
+		this.focusdItem = undefined;
+		this.fileState = undefined;
+		this.fileLeaf?.detach();
+		this.fileEmbeddedView?.unload();
+		this.fileLeaf = undefined;
+		this.fileEmbeddedView = undefined;
+		this.fileEl?.remove();
+		this.modalEl.removeClass("float-search-width");
+	}
+
 	async initFileView(file: TFile, state: any) {
+		if (this.closed) return;
+		const request = ++this.previewRequest;
+		this.previewQueue = this.previewQueue.catch(() => {}).then(async () => {
+			if (this.closed || request !== this.previewRequest) return;
+			await this.renderFileView(file, state, request);
+		});
+		await this.previewQueue;
+	}
+
+	private async renderFileView(file: TFile, state: any, request: number) {
 		if (this.fileLeaf) {
 			await this.fileLeaf.openFile(file, {
 				active: false,
 				eState: state,
 			});
+			if (this.closed || request !== this.previewRequest) return;
 
 			if (
 				this.fileState?.match?.matches[0] ===
@@ -1882,7 +2094,7 @@ class FloatSearchModal extends Modal {
 				this.fileState
 			) {
 				setTimeout(() => {
-					if (this.fileLeaf) {
+					if (!this.closed && request === this.previewRequest && this.fileLeaf) {
 						this.plugin.app.workspace.setActiveLeaf(this.fileLeaf, {
 							focus: true,
 						});
@@ -1891,6 +2103,7 @@ class FloatSearchModal extends Modal {
 			} else {
 				this.fileState = state;
 				setTimeout(() => {
+					if (this.closed || request !== this.previewRequest) return;
 					(
 						this.searchLeaf.view as SearchView
 					).searchComponent?.inputEl?.focus();
@@ -1939,6 +2152,7 @@ class FloatSearchModal extends Modal {
 			active: false,
 			eState: state,
 		});
+		if (this.closed || request !== this.previewRequest) return;
 		this.fileState = state;
 
 		(this.searchLeaf.view as SearchView).searchComponent?.inputEl?.focus();
@@ -1961,34 +2175,56 @@ interface CmdkResult {
 class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 	plugin: FloatSearchPlugin;
 	private bodyEl: HTMLElement;
+	private isComposing = false;
 	private previewEl: HTMLElement | undefined;
 	private fileLeaf: WorkspaceLeaf | undefined;
 	private fileEmbeddedView: EmbeddedView | undefined;
 	private searchAbort: AbortController | null = null;
+	private readonly compositionStart = () => { this.isComposing = true; };
+	private readonly compositionEnd = () => {
+		this.isComposing = false;
+		this.updateSuggestions();
+	};
+	private closed = false;
+	private previewRequest = 0;
+	private previewQueue: Promise<void> = Promise.resolve();
 
 	constructor(plugin: FloatSearchPlugin) {
 		super(plugin.app);
 		this.plugin = plugin;
 		this.limit = 50;
-		this.setPlaceholder("Search files and content...");
+		const s = strings();
+		this.setPlaceholder(s.cmdkPlaceholder);
 		this.setInstructions([
-			{ command: "↑↓", purpose: "Navigate" },
-			{ command: "↵", purpose: "Open" },
-			{ command: "Shift ↵", purpose: "New tab" },
-			{ command: "esc", purpose: "Close" },
+			{ command: "↑↓", purpose: s.cmdkNavigate },
+			{ command: "↵", purpose: s.cmdkOpen },
+			{ command: "Shift ↵", purpose: s.cmdkNewTab },
+			{ command: "esc", purpose: s.cmdkClose },
 		]);
 		this.modalEl.addClass("float-search-cmdk");
 		this.containerEl.addClass("float-search-cmdk-container");
 	}
 
 	onOpen() {
+		this.closed = false;
 		super.onOpen();
+		this.isComposing = false;
+		this.inputEl.addEventListener("compositionstart", this.compositionStart);
+		this.inputEl.addEventListener("compositionend", this.compositionEnd);
 		this.bodyEl = createDiv("float-search-cmdk-body");
 		this.modalEl.insertBefore(
 			this.bodyEl,
 			(this as any).resultContainerEl
 		);
 		this.bodyEl.appendChild((this as any).resultContainerEl);
+		const inputWrap = this.inputEl.closest(
+			".prompt-input-container"
+		) as HTMLElement | null;
+		if (inputWrap) {
+			mountFilterBar(inputWrap, this.plugin, () =>
+				this.updateSuggestions()
+			);
+		}
 	}
 
 	// Required by SuggestModal but unused — we drive the chooser directly
@@ -1998,6 +2234,9 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
 	// Override to use progressive rendering via chooser.addSuggestion
 	updateSuggestions() {
+		if (this.closed || this.isComposing) return;
+		this.onSelectedChange.cancel();
+		this.hidePreview();
 		// Cancel previous in-flight search
 		this.searchAbort?.abort();
 		const abort = (this.searchAbort = new AbortController());
@@ -2006,12 +2245,20 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		const chooser = (this as any).chooser;
 		const query = this.inputEl.value;
 
-		const files = this.app.vault.getFiles().filter(
-			(f: TFile) =>
-				f.extension === "md" ||
-				f.extension === "canvas" ||
-				f.extension === "pdf"
-		);
+		const bookmarks = this.plugin.settings.filterStarredOnly
+			? getBookmarkedPaths(this.app)
+			: null;
+		const files = this.app.vault.getFiles().filter((f: TFile) => {
+			if (
+				f.extension !== "md" &&
+				f.extension !== "canvas" &&
+				f.extension !== "pdf" &&
+				f.extension !== "base"
+			) {
+				return false;
+			}
+			return isFileAllowed(this.plugin, f, bookmarks);
+		});
 
 		// Empty query — show recent files
 		if (!query.trim()) {
@@ -2028,13 +2275,20 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			return;
 		}
 
-		// Phase 1: file name/path fuzzy (sync, instant)
-		const fuzzy = prepareFuzzySearch(query);
+		// Phase 1: file name/path (sync, instant)
 		const fileResults: CmdkResult[] = [];
 
 		for (const file of files) {
-			const nameMatch = fuzzy(file.basename);
-			const pathMatch = fuzzy(file.path);
+			const nameMatch = matchAsSearchResult(
+				this.plugin,
+				file.basename,
+				query
+			);
+			const pathMatch = matchAsSearchResult(
+				this.plugin,
+				file.path,
+				query
+			);
 			if (nameMatch || pathMatch) {
 				fileResults.push({
 					file,
@@ -2087,7 +2341,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		if (query.trim().length >= 2) {
 			this.progressiveHeadingSearch(
 				files,
-				fuzzy,
+				query,
 				chooser,
 				signal
 			);
@@ -2104,7 +2358,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
 	private progressiveHeadingSearch(
 		files: TFile[],
-		fuzzy: (text: string) => SearchResult | null,
+		query: string,
 		chooser: any,
 		signal: AbortSignal
 	) {
@@ -2125,7 +2379,11 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 				if (!cache?.headings) continue;
 
 				for (const h of cache.headings) {
-					const headingMatch = fuzzy(h.heading);
+					const headingMatch = matchAsSearchResult(
+						this.plugin,
+						h.heading,
+						query
+					);
 					if (headingMatch) {
 						chooser.addSuggestion({
 							file,
@@ -2160,7 +2418,8 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		const BATCH_SIZE = 50;
 		const MAX_CONTENT_RESULTS = 20;
 		const DURATION_LIMIT = 5; // ms before yielding
-		const simpleSearch = prepareSimpleSearch(query);
+		const simpleSearch = (text: string) =>
+			matchAsSearchResult(this.plugin, text, query);
 		let idx = 0;
 		let added = 0;
 
@@ -2189,6 +2448,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 					continue;
 				}
 
+				if (signal.aborted || this.closed) return;
 				const result = simpleSearch(text);
 				if (!result) continue;
 
@@ -2234,7 +2494,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			el.addClass("float-search-cmdk-create-item");
 			const contentEl = el.createDiv("suggestion-content");
 			const titleEl = contentEl.createDiv("suggestion-title");
-			titleEl.setText("Create new note");
+			titleEl.setText(strings().cmdkCreateNote);
 			const noteEl = contentEl.createDiv("suggestion-note");
 			const folder =
 				this.plugin.settings.cmdkQuickCreateFolder || "/";
@@ -2316,11 +2576,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			eState.line = result.line;
 		}
 
-		leaf.setViewState({
-			type: result.file.extension === "pdf" ? "pdf" : "markdown",
-			state: { file: result.file.path },
-			active: true,
-		}).then(() => {
+		leaf.openFile(result.file, { active: true }).then(() => {
 			if (eState.subpath || eState.line != null) {
 				leaf.setEphemeralState(eState);
 			}
@@ -2401,12 +2657,25 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 	);
 
 	private hidePreview() {
+		this.previewRequest++;
+		this.modalEl.removeClass("float-search-cmdk-expanded");
 		if (this.previewEl) {
 			this.previewEl.hide();
 		}
 	}
 
 	async showPreview(result: CmdkResult) {
+		if (this.closed) return;
+		this.previewEl?.hide();
+		const request = ++this.previewRequest;
+		this.previewQueue = this.previewQueue.catch(() => {}).then(async () => {
+			if (this.closed || request !== this.previewRequest) return;
+			await this.renderPreview(result, request);
+		});
+		await this.previewQueue;
+	}
+
+	private async renderPreview(result: CmdkResult, request: number) {
 		if (!this.previewEl) {
 			this.previewEl = this.bodyEl.createDiv(
 				"float-search-cmdk-preview"
@@ -2420,11 +2689,14 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			this.fileLeaf.setPinned(true);
 		}
 
-		this.previewEl.show();
-		this.modalEl.addClass("float-search-cmdk-expanded");
+		this.previewEl.hide();
 
 		const file = result.file;
-		await this.fileLeaf!.openFile(file, { active: false });
+		const leaf = this.fileLeaf!;
+		await leaf.openFile(file, { active: false });
+		if (this.closed || request !== this.previewRequest) return;
+		this.previewEl.show();
+		this.modalEl.addClass("float-search-cmdk-expanded");
 
 		const eState: Record<string, any> = {};
 		if (result.type === "heading" && result.heading) {
@@ -2434,19 +2706,26 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 		}
 
 		if (eState.subpath || eState.line != null) {
-			this.fileLeaf!.setViewState({
-				type: file.extension === "pdf" ? "pdf" : "markdown",
-				state: { file: file.path },
-			}).then(() => {
-				this.fileLeaf?.setEphemeralState(eState);
-			});
+			leaf.setEphemeralState(eState);
 		}
 
 		this.inputEl.focus();
 	}
 
 	onClose() {
+		this.closed = true;
+		this.searchAbort?.abort();
+		this.searchAbort = null;
+		this.onSelectedChange.cancel();
+		this.hidePreview();
 		this.fileLeaf?.detach();
 		this.fileEmbeddedView?.unload();
+		this.fileLeaf = undefined;
+		this.fileEmbeddedView = undefined;
+		this.previewEl?.remove();
+		this.previewEl = undefined;
+		this.inputEl.removeEventListener("compositionstart", this.compositionStart);
+		this.inputEl.removeEventListener("compositionend", this.compositionEnd);
 	}
 }
+

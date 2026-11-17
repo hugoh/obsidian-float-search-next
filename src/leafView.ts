@@ -158,7 +158,6 @@ export class EmbeddedView extends nosuper(HoverPopover) {
 		this.parent = parent;
 		this.waitTime = waitTime;
 		this.state = PopoverState.Showing;
-		const {hoverEl} = this;
 
 		this.abortController!.load();
 		this.show();
@@ -416,11 +415,23 @@ export class EmbeddedView extends nosuper(HoverPopover) {
 			// leaves[0].detach();
 			this.targetEl.empty();
 		} else {
+			this.onHide();
 			this.parent = null;
 			this.abortController?.unload();
 			this.abortController = undefined;
 			return this.nativeHide();
 		}
+	}
+
+	onunload() {
+		this.onHide();
+		this.detaching = true;
+		this.onShowCallback = undefined;
+		if (this.timer) window.clearTimeout(this.timer);
+		this.timer = 0;
+		this.abortController?.unload();
+		this.abortController = undefined;
+		super.onunload();
 	}
 
 	nativeHide() {
@@ -521,7 +532,7 @@ export class EmbeddedView extends nosuper(HoverPopover) {
 			this.opening = false;
 			if (this.detaching) this.hide();
 		}
-		this.plugin.app.workspace.setActiveLeaf(leaf);
+		if (!this.detaching) this.plugin.app.workspace.setActiveLeaf(leaf);
 
 		return leaf;
 	}
@@ -552,3 +563,4 @@ export class EmbeddedView extends nosuper(HoverPopover) {
 		return eState;
 	}
 }
+
