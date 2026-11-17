@@ -23,6 +23,7 @@ import {
   mountFilterBar,
   compileQueryRegex,
 } from "./filterBar";
+import type { EventRef, SuggestChooser } from "obsidian";
 import type FloatSearchPlugin from "./floatSearchIndex";
 import { strings } from "./i18n";
 import { LatestQueue } from "./latestQueue";
@@ -66,7 +67,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
   // Candidate ③: the scanned + exclusion-filtered candidate file set, built
   // once and reused across keystrokes (invalidated on vault changes).
   private candidateFiles: TFile[] | null = null;
-  private vaultHandlers: Array<[string, () => void]> = [];
+  private vaultRefs: EventRef[] = [];
   // Candidate ⑥: file paths that already passed the metadata pre-filter in
   // runSearch, so the heading phase need not re-evaluate them.
   private passedMeta: Set<string> | null = null;
@@ -91,7 +92,8 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
   onOpen() {
     this.closed = false;
-    super.onOpen();
+        void super.onOpen();
+
     this.isComposing = false;
     // Tab previews the selection on demand; Shift+Tab closes the preview.
     this.scope.register([], "Tab", () => {
@@ -110,17 +112,19 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     const invalidate = () => {
       this.candidateFiles = null;
     };
-    for (const ev of ["create", "modify", "rename", "delete"] as const) {
-      const h = invalidate;
-      (this.app.vault as any).on(ev, h);
-      this.vaultHandlers.push([ev, h]);
-    }
+    const { vault } = this.app;
+    this.vaultRefs = [
+      vault.on("create", invalidate),
+      vault.on("modify", invalidate),
+      vault.on("rename", invalidate),
+      vault.on("delete", invalidate),
+    ];
     this.bodyEl = createDiv("float-search-cmdk-body");
-    this.modalEl.insertBefore(this.bodyEl, (this as any).resultContainerEl);
-    this.bodyEl.appendChild((this as any).resultContainerEl);
-    const inputWrap = this.inputEl.closest(
+    this.modalEl.insertBefore(this.bodyEl, this.resultContainerEl);
+    this.bodyEl.appendChild(this.resultContainerEl);
+    const inputWrap = this.inputEl.closest<HTMLElement>(
       ".prompt-input-container",
-    ) as HTMLElement | null;
+    );
     if (inputWrap) {
       mountFilterBar(inputWrap, this.plugin, () => this.updateSuggestions());
     }
@@ -157,10 +161,10 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     this.filterBarEl.empty();
     const buttons = this.plugin.settings.savedSearches;
     if (buttons.length === 0) {
-      this.filterBarEl.style.display = "none";
+      this.filterBarEl.hide();
       return;
     }
-    this.filterBarEl.style.display = "";
+    this.filterBarEl.show();
 
     for (const fb of buttons) {
       const chip = this.filterBarEl.createDiv({
@@ -222,7 +226,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     const { signal } = abort;
     this.passedMeta = null;
 
-    const chooser = (this as any).chooser;
+    const chooser = this.chooser;
     const rawInput = this.inputEl.value;
     const trimmed = rawInput.trim();
 
@@ -371,7 +375,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
   private progressiveHeadingSearch(
     files: TFile[],
     fuzzy: (text: string) => SearchResult | null,
-    chooser: any,
+    chooser: SuggestChooser<CmdkResult>,
     signal: AbortSignal,
   ) {
     const BATCH_SIZE = 50; // files per tick
@@ -415,18 +419,18 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 
       // More files to process — yield to event loop
       if (idx < files.length && added < MAX_HEADING_RESULTS) {
-        setTimeout(processBatch, 0);
+        window.setTimeout(() => void processBatch(), 0);
       }
     };
 
     // Start first batch on next microtask so file results render first
-    setTimeout(processBatch, 0);
+    window.setTimeout(() => void processBatch(), 0);
   }
 
   private progressiveContentSearch(
     files: TFile[],
     query: Query,
-    chooser: any,
+    chooser: SuggestChooser<CmdkResult>,
     signal: AbortSignal,
   ) {
     const BATCH_SIZE = 50;
@@ -456,7 +460,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
         // Adaptive yielding: check time every BATCH_SIZE items
         if (idx % BATCH_SIZE === 0 && idx > 0) {
           if (performance.now() - start > DURATION_LIMIT) {
-            setTimeout(processBatch, 0);
+            window.setTimeout(() => void processBatch(), 0);
             return;
           }
         }
@@ -529,7 +533,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     };
 
     // Start after heading search has a chance to render
-    setTimeout(processBatch, contentMode ? 0 : 50);
+    window.setTimeout(() => void processBatch(), contentMode ? 0 : 50);
   }
 
   /** First line in `text` matching any positive content clause value. */
@@ -650,10 +654,11 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     }
   }
 
-  async onChooseSuggestion(
-    result: CmdkResult,
-    evt: MouseEvent | KeyboardEvent,
-  ) {
+  onChooseSuggestion(result: CmdkResult, evt: MouseEvent | KeyboardEvent) {
+    void this.choose(result, evt);
+  }
+
+  private async choose(result: CmdkResult, evt: MouseEvent | KeyboardEvent) {
     if (result.type === "create") {
       void this.quickCreateNote(result.createQuery, evt);
       return;
@@ -721,12 +726,8 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
   }, 100);
 
   private selectedResult(): CmdkResult | undefined {
-    const chooser = (
-      this as unknown as {
-        chooser?: { values?: CmdkResult[] | null; selectedItem: number };
-      }
-    ).chooser;
-    return chooser?.values?.[chooser.selectedItem];
+    const { values, selectedItem } = this.chooser;
+    return values?.[selectedItem];
   }
 
   private hidePreview() {
@@ -777,10 +778,8 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
     this.onSelectedChange.cancel();
     this.hidePreview();
     super.onClose?.();
-    for (const [ev, h] of this.vaultHandlers) {
-      this.app.vault.off(ev as any, h as any);
-    }
-    this.vaultHandlers = [];
+    for (const ref of this.vaultRefs) this.app.vault.offref(ref);
+    this.vaultRefs = [];
     this.fileLeaf?.detach();
     this.fileEmbeddedView?.unload();
     this.fileLeaf = undefined;

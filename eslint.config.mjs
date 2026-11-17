@@ -4,6 +4,7 @@ import globals from "globals";
 
 export default defineConfig(
 	globalIgnores([
+    "tests",
 		"node_modules",
 		"main.js",
 		"eslint.config.mjs",

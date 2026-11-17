@@ -46,7 +46,7 @@ class NamePromptModal extends Modal {
         this.close();
       }
     });
-    setTimeout(() => input.focus(), 0);
+    window.setTimeout(() => input.focus(), 0);
   }
 
   onClose() {

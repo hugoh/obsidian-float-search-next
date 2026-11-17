@@ -68,7 +68,7 @@ export interface Strings {
   viewType: Record<ViewTypeKey, string>;
   viewTypeMenu: (type: string) => string;
   switchToFileView: string;
-  ribbonSearch: (type: ViewTypeKey | string) => string;
+  ribbonSearch: (type: string) => string;
   cmdSearchGlobally: string;
   cmdSearchGloballyState: string;
   cmdSearchCurrentFile: string;

@@ -1,5 +1,5 @@
 import type { App, CachedMetadata, TFile } from "obsidian";
-import { getAllTags, prepareFuzzySearch } from "obsidian";
+import { getAllTags } from "obsidian";
 
 /**
  * SearchFilter — the single source of truth for matching files against
@@ -463,6 +463,6 @@ export class SearchFilter {
     // Tag-like if it contains a nested-tag slash or any non-ASCII
     // character (emoji / CJK), i.e. clearly not a plain ASCII filename
     // search term.
-    return /[/]/.test(token) || /[^\x00-\x7F]/.test(token);
+    return /[/]/.test(token) || /\P{ASCII}/u.test(token);
   }
 }

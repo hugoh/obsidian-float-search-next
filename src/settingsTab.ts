@@ -1,15 +1,17 @@
 import {
   AbstractInputSuggest,
   type App,
-  Modal,
   PluginSettingTab,
   prepareFuzzySearch,
   Setting,
   TFile,
+  type SettingDefinitionItem,
+  type TextComponent,
   TFolder,
 } from "obsidian";
 import type FloatSearchPlugin from "./floatSearchIndex";
 import { strings } from "./i18n";
+import { DOUBLE_TAP_RANGE } from "./settings";
 import type { CmdkTriggerKey, SearchType } from "./settings";
 
 const triggerKeyOptions = (): Record<CmdkTriggerKey, string> => {
@@ -28,7 +30,8 @@ type SettingsTabId = "general" | "quick-search" | "quick-create" | "filters";
 function buildPillList(
   container: HTMLElement,
   items: string[],
-  onRemove: (index: number) => void,
+    onRemove: (index: number) => void | Promise<void>,
+
 ) {
   const wrap = container.createDiv({ cls: "float-search-pill-list" });
   wrap.empty();
@@ -36,7 +39,7 @@ function buildPillList(
     const pill = wrap.createDiv({ cls: "float-search-pill" });
     pill.setText(item);
     pill.title = strings().clickToRemove;
-    pill.onClickEvent(() => onRemove(i));
+    pill.onClickEvent(() => void onRemove(i));
   });
   return wrap;
 }
@@ -51,7 +54,7 @@ class PathSuggest extends AbstractInputSuggest<TFolder | TFile> {
     app: App,
     private inputEl: HTMLInputElement,
     private kind: "folder" | "file",
-    private onPick: (path: string) => void,
+    private onPick: (path: string) => void | Promise<void>,
   ) {
     super(app, inputEl);
   }
@@ -79,7 +82,7 @@ class PathSuggest extends AbstractInputSuggest<TFolder | TFile> {
   }
 
   selectSuggestion(value: TFolder | TFile) {
-    this.onPick(value.path);
+        void this.onPick(value.path);
     this.inputEl.value = "";
     this.close();
   }
@@ -98,13 +101,116 @@ export class FloatSearchSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+    /**
+   * Describes the plain settings for Obsidian's settings search (1.13+).
+   * The tab itself is still drawn by display(), which also handles the
+   * exclusion pickers and the saved-search editor.
+   */
+  override getSettingDefinitions(): SettingDefinitionItem[] {
+    const s = strings();
+    const viewTypes = s.viewType;
+    return [
+      {
+        type: "group",
+        heading: s.tabGeneral,
+        items: [
+          {
+            name: s.defaultViewType,
+            control: {
+              type: "dropdown",
+              key: "defaultViewType",
+              options: {
+                modal: viewTypes.modal,
+                split: viewTypes.split,
+                tab: viewTypes.tab,
+                window: viewTypes.window,
+                sidebar: viewTypes.sidebar,
+              },
+            },
+          },
+          { name: s.showFilePath, control: { type: "toggle", key: "showFilePath" } },
+          {
+            name: s.showInstructions,
+            control: { type: "toggle", key: "showInstructions" },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: s.tabQuickSearch,
+        items: [
+          {
+            name: s.quickSearchTrigger,
+            desc: s.quickSearchTriggerDesc,
+            control: {
+              type: "dropdown",
+              key: "cmdkTriggerKey",
+              options: triggerKeyOptions(),
+            },
+          },
+          {
+            name: s.autoPreview,
+            desc: s.autoPreviewDesc,
+            control: { type: "toggle", key: "cmdkAutoPreview" },
+          },
+          {
+            name: s.doubleTapInterval,
+            desc: s.doubleTapIntervalDesc,
+            control: {
+              type: "slider",
+              key: "cmdkDoubleTapInterval",
+              min: DOUBLE_TAP_RANGE.min,
+              max: DOUBLE_TAP_RANGE.max,
+              step: 50,
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: s.tabQuickCreate,
+        items: [
+          {
+            name: s.enableQuickCreate,
+            desc: s.enableQuickCreateDesc,
+            control: { type: "toggle", key: "cmdkQuickCreate" },
+          },
+          {
+            name: s.quickCreateFolder,
+            desc: s.quickCreateFolderDesc,
+            control: {
+              type: "folder",
+              key: "cmdkQuickCreateFolder",
+              placeholder: s.quickCreateFolderPlaceholder,
+            },
+          },
+          {
+            name: s.titleFormat,
+            desc: s.titleFormatDesc,
+            control: { type: "text", key: "cmdkQuickCreateTitleFormat" },
+          },
+        ],
+      },
+    ];
+  }
+
+  override getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
+
+  override async setControlValue(key: string, value: unknown): Promise<void> {
+    (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+    if (key === "showFilePath") this.plugin.updateFilePathVisibility();
+    await this.plugin.saveSettings();
+  }
+
   display() {
     const { containerEl } = this;
     const s = strings();
     containerEl.empty();
     containerEl.addClass("float-search-settings-tab");
 
-    containerEl.createEl("h3", { text: s.settingsTitle });
+    new Setting(containerEl).setName(s.settingsTitle).setHeading();
     containerEl.createEl("p", {
       cls: "float-search-settings-intro",
       text: s.pluginIntro,
@@ -215,7 +321,6 @@ export class FloatSearchSettingTab extends PluginSettingTab {
         slider
           .setLimits(150, 600, 50)
           .setValue(this.plugin.settings.cmdkDoubleTapInterval)
-          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.cmdkDoubleTapInterval = value;
             await this.plugin.saveSettings();
@@ -268,7 +373,7 @@ export class FloatSearchSettingTab extends PluginSettingTab {
 
   private renderFilters(container: HTMLElement) {
     // ── Exclusions ──────────────────────────────────────────────
-    container.createEl("h3", { text: strings().exclusions });
+    new Setting(container).setName(strings().exclusions).setHeading();
 
     // Exclude folders
     new Setting(container)
@@ -311,12 +416,12 @@ export class FloatSearchSettingTab extends PluginSettingTab {
     });
 
     // ── Saved searches ─────────────────────────────────────────
-    container.createEl("h3", { text: strings().savedSearches });
+    new Setting(container).setName(strings().savedSearches).setHeading();
 
     const addSetting = new Setting(container).setName(strings().addSavedSearch);
     addSetting.setDesc(strings().addSavedSearchDesc);
-    let nameInput: any;
-    let queryInput: any;
+    let nameInput: TextComponent | undefined;
+    let queryInput: TextComponent | undefined;
     addSetting.addText((text) => {
       nameInput = text;
       text.setPlaceholder(strings().namePlaceholder);
@@ -329,15 +434,15 @@ export class FloatSearchSettingTab extends PluginSettingTab {
       button
         .setButtonText(strings().add)
         .setCta()
-        .onClick(async () => {
+        .onClick(() => {
           const name = nameInput?.inputEl.value.trim();
           const query = queryInput?.inputEl.value.trim();
-          if (name && query) {
-            await this.plugin.addSavedSearch(name, query);
+          if (!name || !query || !nameInput || !queryInput) return;
+          const fields = [nameInput, queryInput];
+          void this.plugin.addSavedSearch(name, query).then(() => {
             this.renderSavedList();
-            nameInput.inputEl.value = "";
-            queryInput.inputEl.value = "";
-          }
+            for (const field of fields) field.inputEl.value = "";
+          });
         });
     });
 
@@ -423,9 +528,9 @@ export class FloatSearchSettingTab extends PluginSettingTab {
             this.renderSavedList();
           }
         };
-        saveBtn.onClickEvent(() => commit());
+        saveBtn.onClickEvent(() => void commit());
         queryField.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") commit();
+          if (e.key === "Enter") void commit();
           if (e.key === "Escape") this.renderSavedList();
         });
         cancelBtn.onClickEvent(() => this.renderSavedList());

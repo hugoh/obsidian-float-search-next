@@ -99,7 +99,45 @@ declare module "obsidian" {
 
     openWithDefaultApp(path: string): void;
 
-    dragManager: any;
+    dragManager?: DragManager;
+  }
+
+  interface SuggestChooser<T> {
+    values: T[] | null;
+    selectedItem: number;
+    setSuggestions(items: T[]): void;
+    addSuggestion(item: T): void;
+  }
+
+  interface SuggestModal<T> {
+    chooser: SuggestChooser<T>;
+    resultContainerEl: HTMLElement;
+  }
+
+  interface DragManager {
+    dragFile(event: DragEvent, file: TFile): unknown;
+  }
+
+  interface SearchResultItem {
+    el: HTMLElement;
+    containerEl: HTMLElement;
+    file?: TFile;
+    parent: { file?: TFile };
+    content?: string;
+    matches?: unknown[];
+    collapsible?: boolean;
+    collapseEl?: HTMLElement;
+    pathEl?: HTMLElement;
+    setCollapse(collapse: boolean): void;
+  }
+
+  interface SearchResultDom {
+    focusedItem: SearchResultItem | null;
+    setFocusedItem(item: SearchResultItem | null | undefined): void;
+    resultDomLookup: Map<TFile, SearchResultItem>;
+    vChildren?: { children?: SearchResultItem[]; _children?: SearchResultItem[] };
+    children?: SearchResultItem[];
+    stopLoader(): void;
   }
 
   interface ViewRegistry {
@@ -182,7 +220,7 @@ declare module "obsidian" {
 
     floatingSplit: any;
 
-    pushUndoHistory(leaf: WorkspaceLeaf, id: string, e: any): void;
+    pushUndoHistory(leaf: WorkspaceLeaf, id: string, e: unknown): void;
   }
 
   interface Editor {
@@ -229,9 +267,17 @@ declare module "obsidian" {
 
     onKeyShowMoreAfter(e: KeyboardEvent): void;
 
-    dom: any;
+    dom: SearchResultDom;
     searchComponent: SearchComponent;
-    headerDom: any;
+    filterSectionToggleEl: HTMLElement;
+    searchParamsContainerEl: HTMLElement;
+    hidePathToggle?: Setting;
+    showInstructionsToggle?: Setting;
+    defaultViewTypeDropdown?: Setting;
+    infoEl?: HTMLElement;
+    startSearch(): void;
+    stopSearch?(): void;
+    setMatchingCase?(value: boolean): void;
   }
 
   interface EmptyView extends View {

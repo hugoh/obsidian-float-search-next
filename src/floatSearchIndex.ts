@@ -25,7 +25,7 @@ import { ContentCache } from "./contentCache";
 import { stripExclusion, withExclusion } from "./exclusions";
 import { registerFilterIcons } from "./filterBar";
 import { strings } from "./i18n";
-import { EmbeddedView, isEmebeddedLeaf } from "./leafView";
+import { EmbeddedView, isEmbeddedLeaf } from "./leafView";
 import { FloatSearchModal } from "./nativeModal";
 import { escapeRegex } from "./regex";
 import { SearchFilter } from "./searchFilter";
@@ -421,7 +421,7 @@ export default class FloatSearchPlugin extends Plugin {
     const self = this;
     const uninstaller = around(Workspace.prototype, {
       getLeaf: (next) =>
-        function (...args) {
+        function (...args: Parameters<Workspace["getLeaf"]>) {
           const activeLeaf = (this as Workspace).activeLeaf;
           if (activeLeaf?.parent) {
             const fsCtnEl = (activeLeaf.parent.containerEl as HTMLElement)
@@ -437,9 +437,9 @@ export default class FloatSearchPlugin extends Plugin {
                 this.setActiveLeaf(newLeaf);
               }
             }
-            return next.call(this, ...args);
+            return next.apply(this, args);
           }
-          return next.call(this, ...args);
+          return next.apply(this, args);
         },
       changeLayout(old) {
         return async function (workspace: unknown) {
@@ -452,9 +452,14 @@ export default class FloatSearchPlugin extends Plugin {
           }
         };
       },
-      iterateLeaves(old) {
+      iterateLeaves(native) {
         type leafIterator = (item: WorkspaceLeaf) => boolean | void;
-        return function (arg1, arg2) {
+        // Obsidian accepts (callback, item) and, in older versions, (item, callback).
+        const old = native as unknown as (
+          this: Workspace,
+          ...args: unknown[]
+        ) => boolean | void;
+        return function (arg1: unknown, arg2: unknown) {
           // Fast exit if desired leaf found
           if (old.call(this, arg1, arg2)) return true;
 
@@ -487,17 +492,22 @@ export default class FloatSearchPlugin extends Plugin {
           return false;
         };
       },
-      setActiveLeaf(old) {
-        return function (leaf: any, params?: any) {
-          if (isEmebeddedLeaf(leaf)) {
+      setActiveLeaf(native) {
+        const old = native as (
+          this: Workspace,
+          leaf: WorkspaceLeaf,
+          params?: { focus?: boolean },
+        ) => void;
+        return function (leaf: WorkspaceLeaf, params?: { focus?: boolean }) {
+          if (isEmbeddedLeaf(leaf)) {
             old.call(this, leaf, params);
             leaf.activeTime = 1700000000000;
           }
-          return old.call(this, leaf, params);
-        };
+                    return old.call(this, leaf, params);
+        } as typeof native;
       },
-      pushUndoHistory(old: any) {
-        return function (leaf: WorkspaceLeaf, id: string, ...args: any[]) {
+      pushUndoHistory(old) {
+        return function (leaf: WorkspaceLeaf, id: string, ...args: unknown[]) {
           const viewState = leaf.getViewState();
           if (viewState.type === "search") {
             return;
@@ -522,13 +532,13 @@ export default class FloatSearchPlugin extends Plugin {
         setPinned(old) {
           return function (pinned: boolean) {
             old.call(this, pinned);
-            if (isEmebeddedLeaf(this) && !pinned) this.setPinned(true);
+            if (isEmbeddedLeaf(this) && !pinned) this.setPinned(true);
           };
         },
         openFile(old) {
           return function (file: TFile, openState?: OpenViewState) {
-            if (isEmebeddedLeaf(this)) {
-              setTimeout(
+            if (isEmbeddedLeaf(this)) {
+              window.setTimeout(
                 around(Workspace.prototype, {
                   recordMostRecentOpenedFile(old) {
                     return function (_file: TFile) {
@@ -544,7 +554,7 @@ export default class FloatSearchPlugin extends Plugin {
               const recentFiles =
                 this.app.plugins.plugins["recent-files-obsidian"];
               if (recentFiles) {
-                setTimeout(
+                window.setTimeout(
                   around(recentFiles, {
                     shouldAddFile(old) {
                       return function (_file: TFile) {
@@ -559,13 +569,13 @@ export default class FloatSearchPlugin extends Plugin {
             }
 
             const view = old.call(this, file, openState);
-            setTimeout(() => {
+            window.setTimeout(() => {
               const fsCtnEl = this.parent?.containerEl?.parentElement;
               if (!fsCtnEl?.classList.contains("fs-content")) return;
               if (file.extension != "canvas") return;
 
               const canvas = this.view.canvas;
-              setTimeout(() => {
+              window.setTimeout(() => {
                 if (canvas && openState?.eState?.match) {
                   let node = canvas.data.nodes?.find(
                     (e: any) =>
@@ -621,7 +631,7 @@ export default class FloatSearchPlugin extends Plugin {
             .onClick(async () => {
               if (view.type === "modal") {
                 originLeaf?.detach();
-                setTimeout(() => {
+                window.setTimeout(() => {
                   this.initModal(this.state, true, false);
                 }, 10);
               } else if (view.type === "sidebar") {
@@ -629,7 +639,7 @@ export default class FloatSearchPlugin extends Plugin {
               } else {
                 if (current === "window") {
                   originLeaf?.detach();
-                  setTimeout(async () => {
+                  window.setTimeout(async () => {
                     await this.openInLeaf(
                       <"tab" | "split">view.type,
                       this.state,
@@ -928,7 +938,7 @@ export default class FloatSearchPlugin extends Plugin {
           return function (e: any, a: TFile) {
             const result = old.call(this, e, a);
 
-            setTimeout(() => {
+            window.setTimeout(() => {
               self?.modal?.close();
             }, 10);
             return result;
@@ -1251,7 +1261,7 @@ export default class FloatSearchPlugin extends Plugin {
                   }
 
                   this.initModal({ ...this.state, current: false }, true, true);
-                  setTimeout(async () => {
+                  window.setTimeout(async () => {
                     await this.modal.initFileView(file, undefined);
                   }, 20);
                 })

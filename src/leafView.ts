@@ -1,6 +1,6 @@
 // Original code from https://github.com/nothingislost/obsidian-hover-editor/blob/9ec3449be9ab3433dc46c4c3acfde1da72ff0261/src/popover.ts
 // You can use this file as a basic leaf view create method in anywhere
-// Please rememeber if you want to use this file, you should patch the types-obsidian.d.ts file
+// Please remember if you want to use this file, you should patch the types-obsidian.d.ts file
 // And also monkey around the Obsidian original method.
 import {
   Component,
@@ -34,7 +34,7 @@ type ConstructableWorkspaceSplit = new (
   dir: "horizontal" | "vertical",
 ) => WorkspaceSplit;
 
-export function isEmebeddedLeaf(leaf: WorkspaceLeaf) {
+export function isEmbeddedLeaf(leaf: WorkspaceLeaf) {
   // Work around missing enhance.js API by checking match condition instead of looking up parent
   if (!leaf) return false;
   return leaf.containerEl.matches(".fs-block.fs-leaf-view .workspace-leaf");
@@ -315,7 +315,7 @@ export class EmbeddedView extends nosuper(HoverPopover) {
   onShow() {
     // Once we've been open for closeDelay, use the closeDelay as a hiding timeout
     const closeDelay = 600;
-    setTimeout(() => (this.waitTime = closeDelay), closeDelay);
+    window.setTimeout(() => (this.waitTime = closeDelay), closeDelay);
 
     this.oldPopover?.hide();
     this.oldPopover = null;

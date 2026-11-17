@@ -40,21 +40,40 @@ export function registerFilterIcons(): void {
   }
 }
 
+interface BookmarkItem {
+  type?: string;
+  path?: string;
+  items?: BookmarkItem[];
+  children?: BookmarkItem[];
+}
+
+interface BookmarksPlugin {
+  getBookmarks?(): BookmarkItem[];
+}
+
+/** The core Bookmarks plugin has no public API, so reach it defensively. */
+interface InternalPluginHost {
+  internalPlugins?: {
+    getEnabledPluginById?(id: string): BookmarksPlugin | undefined;
+    plugins?: { bookmarks?: { instance?: BookmarksPlugin } };
+  };
+}
+
 export function getBookmarkedPaths(app: App): Set<string> {
   const paths = new Set<string>();
-  const inst =
-    (app as any).internalPlugins?.getEnabledPluginById?.("bookmarks") ??
-    (app as any).internalPlugins?.plugins?.bookmarks?.instance;
-  if (!inst) return paths;
-  const items = inst.getBookmarks?.() ?? [];
-  const walk = (item: any) => {
+  const { internalPlugins } = app as unknown as InternalPluginHost;
+  const bookmarks =
+    internalPlugins?.getEnabledPluginById?.("bookmarks") ??
+    internalPlugins?.plugins?.bookmarks?.instance;
+  const walk = (item: BookmarkItem | undefined) => {
     if (!item) return;
     if (item.type === "file" && typeof item.path === "string") {
       paths.add(item.path);
     }
-    if (Array.isArray(item.items)) item.items.forEach(walk);
-    if (Array.isArray(item.children)) item.children.forEach(walk);
+    item.items?.forEach(walk);
+    item.children?.forEach(walk);
   };
+  const items = bookmarks?.getBookmarks?.();
   if (Array.isArray(items)) items.forEach(walk);
   return paths;
 }
@@ -101,11 +120,7 @@ export function bindNativeRegexSearch(
   plugin: FilterHost,
   onQueryChange?: () => void,
 ): () => void {
-  const target = view as SearchView & {
-    startSearch: () => void;
-    stopSearch?: () => void;
-    infoEl?: HTMLElement;
-  };
+  const target = view;
   const component = view.searchComponent as SearchView["searchComponent"] & {
     changeCallback?: (value: string) => void;
   };
@@ -118,6 +133,8 @@ export function bindNativeRegexSearch(
   const unpatch = around(target, {
     startSearch(old) {
       return function () {
+        // The original is put back by assignment below, never called unbound.
+        // eslint-disable-next-line @typescript-eslint/unbound-method -- restored by assignment, not invoked detached
         const getValue = component.getValue;
         // startSearch reads its query synchronously, before requesting layout saves.
         // Restore on the first read so state/history always retain the user's input.
@@ -200,8 +217,8 @@ export function applyNativeResultFilters(
   const bookmarks = plugin.settings.filterStarredOnly
     ? getBookmarkedPaths(plugin.app)
     : null;
-  const dom = (view as any).dom;
-  const children: any[] = dom?.vChildren?._children ?? dom?.children ?? [];
+  const { dom } = view;
+  const children = dom?.vChildren?._children ?? dom?.children ?? [];
 
   const applyToFile = (
     file: TFile | undefined,
@@ -214,7 +231,7 @@ export function applyNativeResultFilters(
 
   if (children.length) {
     for (const child of children) {
-      applyToFile(child.file, child.el ?? child.containerEl ?? child.dom);
+      applyToFile(child.file, child.el ?? child.containerEl);
     }
     return;
   }
@@ -236,8 +253,11 @@ export function mountFilterBar(
   onChange: () => void,
 ): HTMLElement {
   const s = strings();
-  const row = document.createElement("div");
-  row.className = "float-search-filter-row";
+  const persist = async () => {
+    await plugin.saveSettings();
+    onChange();
+  };
+  const row = createDiv({ cls: "float-search-filter-row" });
 
   const addCheck = (
     label: string,
@@ -248,10 +268,9 @@ export function mountFilterBar(
     const input = wrap.createEl("input", { type: "checkbox" });
     input.checked = get();
     wrap.appendText(label);
-    input.addEventListener("change", async () => {
+    input.addEventListener("change", () => {
       set(input.checked);
-      await plugin.saveSettings();
-      onChange();
+      void persist();
     });
   };
 
@@ -278,12 +297,11 @@ export function mountFilterBar(
     if (plugin.settings.filterStarredOnly === starredOnly) {
       btn.addClass("is-active");
     }
-    btn.onclick = async () => {
+    btn.onclick = () => {
       plugin.settings.filterStarredOnly = starredOnly;
       seg.querySelectorAll("button").forEach((b) => b.removeClass("is-active"));
       btn.addClass("is-active");
-      await plugin.saveSettings();
-      onChange();
+      void persist();
     };
   };
   addSeg(s.filterAll, false);
@@ -303,13 +321,12 @@ export function mountFilterBar(
     btn.setAttribute("aria-pressed", get() ? "true" : "false");
     if (get()) btn.addClass("is-active");
     setIcon(btn, icon);
-    btn.onclick = async () => {
+    btn.onclick = () => {
       const next = !get();
       set(next);
       btn.toggleClass("is-active", next);
       btn.setAttribute("aria-pressed", next ? "true" : "false");
-      await plugin.saveSettings();
-      onChange();
+      void persist();
     };
   };
 

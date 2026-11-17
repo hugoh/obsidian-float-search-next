@@ -189,7 +189,7 @@ function createHarness() {
       return [leaf, embedded];
     },
     EmbeddedView: class {},
-    isEmebeddedLeaf: () => false,
+    isEmbeddedLeaf: () => false,
   };
   const sourceRoot = process.env.FLOAT_SEARCH_TEST_SOURCE_ROOT || path.resolve(__dirname, '..');
   const loaded = new Map();
@@ -226,7 +226,7 @@ function createHarness() {
   }
   const mainLeaf = makeLeaf();
   const app = {
-    vault: { on() {}, off() {}, getAllLoadedFiles: () => [], getFiles: () => [], cachedRead: async () => '', getAbstractFileByPath: () => null },
+    vault: { on() { return {}; }, offref() {}, getAllLoadedFiles: () => [], getFiles: () => [], cachedRead: async () => '', getAbstractFileByPath: () => null },
     metadataCache: { getFileCache: () => null },
     workspace: {
       getMostRecentLeaf: () => mainLeaf,

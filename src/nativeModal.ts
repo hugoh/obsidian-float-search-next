@@ -2,11 +2,11 @@ import {
   debounce,
   Keymap,
   Modal,
+  type SearchResultItem,
   type SearchView,
   TFile,
   type WorkspaceLeaf,
 } from "obsidian";
-import { stripExclusion, withExclusion } from "./exclusions";
 import {
   applyNativeResultFilters,
   bindNativeRegexSearch,
@@ -15,6 +15,7 @@ import {
 } from "./filterBar";
 import type FloatSearchPlugin from "./floatSearchIndex";
 import { strings } from "./i18n";
+import type { SearchState } from "./settings";
 import { LatestQueue } from "./latestQueue";
 import { type EmbeddedView, spawnLeafView } from "./leafView";
 
@@ -38,6 +39,11 @@ function createInstructionElement(
   return { divEl, iconEl, textEl };
 }
 
+/** Where the preview should land: the matched text inside a result row. */
+export interface PreviewState extends Record<string, unknown> {
+  match?: { content?: string; matches?: unknown[] };
+}
+
 export class FloatSearchModal extends Modal {
   private readonly plugin: FloatSearchPlugin;
   private searchEmbeddedView: EmbeddedView;
@@ -46,10 +52,10 @@ export class FloatSearchModal extends Modal {
   searchLeaf: WorkspaceLeaf;
   fileLeaf: WorkspaceLeaf | undefined;
 
-  private cb: (state: any) => void;
-  private state: any;
+  private cb: (state: SearchState) => void;
+  private state: SearchState;
 
-  private fileState: any;
+  private fileState: PreviewState | undefined;
 
   private searchCtnEl: HTMLElement;
   private unwatchFilters: (() => void) | null = null;
@@ -58,7 +64,7 @@ export class FloatSearchModal extends Modal {
   private fileEl: HTMLElement;
   private viewType: string;
 
-  private focusdItem: any;
+  private focusdItem: SearchResultItem | undefined;
   private closed = false;
   private readonly previews = new LatestQueue();
   private inputCleanup: (() => void) | null = null;
@@ -68,9 +74,9 @@ export class FloatSearchModal extends Modal {
   }, 150);
 
   constructor(
-    cb: (state: any) => void,
+    cb: (state: SearchState) => void,
     plugin: FloatSearchPlugin,
-    state: any,
+    state: SearchState,
     viewType = "search",
   ) {
     super(plugin.app);
@@ -116,9 +122,13 @@ export class FloatSearchModal extends Modal {
     this.unbindNativeQuery = null;
 
     if (this.searchLeaf) {
-      const st = this.searchLeaf.view.getState();
-      st.query = this.plugin.stripExclusion(st.query as string);
-      this.cb(st);
+      const saved = this.searchLeaf.view.getState();
+      this.cb({
+        ...saved,
+        query: this.plugin.stripExclusion(
+          typeof saved.query === "string" ? saved.query : "",
+        ),
+      });
     }
 
     this.searchLeaf?.detach();
@@ -210,32 +220,35 @@ export class FloatSearchModal extends Modal {
       state: { ...initialState, triggerBySelf: true },
     });
 
-    window.setTimeout(async () => {
-      if (this.closed) return;
-      // The view re-applies the saved state once it has settled, but never
-      // over text the user already typed.
-      const typed = (this.searchLeaf.view as SearchView).searchComponent
-        ?.inputEl?.value;
-      if (!typed || typed === initialQuery) {
-        await this.searchLeaf.view.setState(
-          { ...initialState, triggerBySelf: true },
-          { history: false },
-        );
-      }
-      if (this.closed) return;
-      const searchComponent = (this.searchLeaf.view as SearchView)
-        .searchComponent;
-      if (searchComponent?.inputEl) {
-        this.state?.current
-          ? searchComponent.inputEl.setSelectionRange(0, 0)
-          : searchComponent.inputEl.setSelectionRange(
-              0,
-              this.state?.query?.length,
-            );
-      }
-    }, 0);
+    window.setTimeout(
+      () => void this.settleInitialState(initialState, initialQuery),
+      0,
+    );
+  }
 
-    return;
+  /**
+   * The view re-applies the saved state once it has settled, but never over
+   * text the user already typed; then the caret goes where the query ends.
+   */
+  private async settleInitialState(
+    initialState: SearchState,
+    initialQuery: string,
+  ) {
+    if (this.closed) return;
+    const view = this.searchLeaf.view as SearchView;
+    const typed = view.searchComponent?.inputEl?.value;
+    if (!typed || typed === initialQuery) {
+      await view.setState(
+        { ...initialState, triggerBySelf: true },
+        { history: false },
+      );
+    }
+    if (this.closed) return;
+    const inputEl = view.searchComponent?.inputEl;
+    if (inputEl) {
+      if (this.state.current) inputEl.setSelectionRange(0, 0);
+      else inputEl.setSelectionRange(0, this.state.query?.length ?? 0);
+    }
   }
 
   private initFilterBar() {
@@ -274,7 +287,7 @@ export class FloatSearchModal extends Modal {
       return;
     }
     if (state.matchingCase !== this.plugin.settings.filterMatchCase) {
-      view.setState(
+            void view.setState(
         {
           ...state,
           matchingCase: this.plugin.settings.filterMatchCase,
@@ -290,7 +303,7 @@ export class FloatSearchModal extends Modal {
     const inputEl = this.contentEl.getElementsByTagName("input")[0];
     if (!inputEl) {
       if (retries > 0) {
-        setTimeout(() => this.initInput(retries - 1), 50);
+        window.setTimeout(() => this.initInput(retries - 1), 50);
       }
       return;
     }
@@ -305,7 +318,7 @@ export class FloatSearchModal extends Modal {
     };
     inputEl.focus();
     inputEl.onkeydown = (e) => {
-      if (e.isComposing || e.key === "Process" || e.keyCode === 229) {
+      if (e.isComposing || e.key === "Process") {
         return;
       }
       const currentView = this.searchLeaf.view as SearchView;
@@ -321,11 +334,11 @@ export class FloatSearchModal extends Modal {
               if (currentView.dom.focusedItem.collapsible) {
                 currentView.dom.focusedItem.setCollapse(false);
               }
-              this.focusdItem = currentView.dom.focusedItem;
+              this.focusdItem = currentView.dom.focusedItem ?? undefined;
             }
           } else {
             currentView.onKeyArrowDownInFocus(e);
-            this.focusdItem = currentView.dom.focusedItem;
+            this.focusdItem = currentView.dom.focusedItem ?? undefined;
             this.debouncedAutoPreview();
           }
           break;
@@ -340,11 +353,11 @@ export class FloatSearchModal extends Modal {
               if (currentView.dom.focusedItem.collapseEl) {
                 currentView.dom.focusedItem.setCollapse(true);
               }
-              this.focusdItem = currentView.dom.focusedItem;
+              this.focusdItem = currentView.dom.focusedItem ?? undefined;
             }
           } else {
             currentView.onKeyArrowUpInFocus(e);
-            this.focusdItem = currentView.dom.focusedItem;
+            this.focusdItem = currentView.dom.focusedItem ?? undefined;
             if (!currentView.dom.focusedItem?.content) {
               this.focusdItem = undefined;
             }
@@ -366,7 +379,7 @@ export class FloatSearchModal extends Modal {
             e.preventDefault();
             const fileName = inputEl.value.trim();
             const real = fileName.replace(/[/\\?%*:|"<>]/g, "-");
-            this.plugin.app.workspace.openLinkText(real, "", true);
+            void this.plugin.app.workspace.openLinkText(real, "", true);
             this.close();
             break;
           }
@@ -389,19 +402,9 @@ export class FloatSearchModal extends Modal {
             }
           }
 
-          if (currentView.dom.focusedItem) {
-            const item = currentView.dom.focusedItem;
-            const file =
-              item.parent.file instanceof TFile ? item.parent.file : item.file;
-
-            item.parent.file instanceof TFile
-              ? this.initFileView(file, {
-                  match: {
-                    content: item.content,
-                    matches: item.matches,
-                  },
-                })
-              : this.initFileView(file, undefined);
+          {
+            const focused = currentView.dom.focusedItem;
+            if (focused) this.previewItem(focused);
           }
           break;
         case "e":
@@ -413,10 +416,10 @@ export class FloatSearchModal extends Modal {
                 ...estate.state,
                 mode: "preview" === estate.state?.mode ? "source" : "preview",
               };
-              this.fileLeaf.setViewState(estate, {
+              void this.fileLeaf.setViewState(estate, {
                 focus: true,
               });
-              setTimeout(() => {
+              window.setTimeout(() => {
                 (
                   this.searchLeaf.view as SearchView
                 ).searchComponent?.inputEl?.focus();
@@ -435,8 +438,8 @@ export class FloatSearchModal extends Modal {
         case "C":
           if (e.ctrlKey && e.shiftKey) {
             e.preventDefault();
-            const text = currentView.dom.focusedItem.el.innerText;
-            navigator.clipboard.writeText(text);
+            const text = currentView.dom.focusedItem?.el.innerText;
+            if (text) void navigator.clipboard.writeText(text);
           }
           break;
       }
@@ -452,21 +455,19 @@ export class FloatSearchModal extends Modal {
       return;
     }
 
-    const file =
-      item.parent?.file instanceof TFile ? item.parent.file : item.file;
+    this.previewItem(item);
+  }
+
+  /** Preview the file behind a result row, jumping to the match for match rows. */
+  private previewItem(item: SearchResultItem) {
+    const matchFile = item.parent?.file;
+    const file = matchFile instanceof TFile ? matchFile : item.file;
     if (!(file instanceof TFile)) return;
-
     const state =
-      item.parent?.file instanceof TFile
-        ? {
-            match: {
-              content: item.content,
-              matches: item.matches,
-            },
-          }
+      matchFile instanceof TFile
+        ? { match: { content: item.content, matches: item.matches } }
         : undefined;
-
-    this.initFileView(file, state);
+    void this.initFileView(file, state);
   }
 
   initContent() {
@@ -501,7 +502,7 @@ export class FloatSearchModal extends Modal {
       if (this.fileLeaf) {
         const currentView = this.searchLeaf.view as SearchView;
 
-        if ((this.searchCtnEl as Node).contains(targetElement as Node)) {
+        if (this.searchCtnEl.contains(targetElement)) {
           while (targetElement) {
             if (targetElement.classList.contains("tree-item")) {
               break;
@@ -522,7 +523,7 @@ export class FloatSearchModal extends Modal {
           if (file) {
             const item = currentView.dom.resultDomLookup.get(file);
             currentView.dom.setFocusedItem(item);
-            this.initFileView(file, undefined);
+            void this.initFileView(file, undefined);
             (
               this.searchLeaf.view as SearchView
             ).searchComponent?.inputEl?.focus();
@@ -546,7 +547,7 @@ export class FloatSearchModal extends Modal {
     this.modalEl.removeClass("float-search-width");
   }
 
-  async initFileView(file: TFile, state: any) {
+  async initFileView(file: TFile, state: PreviewState | undefined) {
     if (this.closed) return;
     await this.previews.run(async (isCurrent) => {
       if (this.closed) return;
@@ -556,7 +557,7 @@ export class FloatSearchModal extends Modal {
 
   private async renderFileView(
     file: TFile,
-    state: any,
+    state: PreviewState | undefined,
     isCurrent: () => boolean,
   ) {
     if (this.fileLeaf) {
@@ -567,11 +568,11 @@ export class FloatSearchModal extends Modal {
       if (this.closed || !isCurrent()) return;
 
       if (
-        this.fileState?.match?.matches[0] === state?.match?.matches[0] &&
+        this.fileState?.match?.matches?.[0] === state?.match?.matches?.[0] &&
         state &&
         this.fileState
       ) {
-        setTimeout(() => {
+        window.setTimeout(() => {
           if (!this.closed && isCurrent() && this.fileLeaf) {
             this.plugin.app.workspace.setActiveLeaf(this.fileLeaf, {
               focus: true,
@@ -580,7 +581,7 @@ export class FloatSearchModal extends Modal {
         }, 0);
       } else {
         this.fileState = state;
-        setTimeout(() => {
+        window.setTimeout(() => {
           if (this.closed || !isCurrent()) return;
           (
             this.searchLeaf.view as SearchView
