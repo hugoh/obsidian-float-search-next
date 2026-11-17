@@ -574,6 +574,32 @@ test('native initialization applies the filter match-case setting to initial and
   assert.equal(delayed[0].query, '^Needle$');
 });
 
+test('native initialization does not overwrite text typed before the delayed state is applied', async () => {
+  const h = createHarness();
+  const leaf = h.makeLeaf();
+  const delayed = [];
+  leaf.view.setState = async (state) => { delayed.push(state); };
+  leaf.view.searchComponent = { inputEl: { value: 'pineapple', setSelectionRange() {} } };
+  h.leafModule.nextLeaf = leaf;
+  const modal = new h.FloatSearchModal(() => {}, h.plugin, { query: '' });
+  await modal.initSearchView(new ElementStub());
+  await h.clock.tick(0);
+  assert.equal(delayed.length, 0, 'User input must not be replaced by the saved state');
+});
+
+test('native initialization still applies the delayed state while the input is untouched', async () => {
+  const h = createHarness();
+  const leaf = h.makeLeaf();
+  const delayed = [];
+  leaf.view.setState = async (state) => { delayed.push(state); };
+  leaf.view.searchComponent = { inputEl: { value: '', setSelectionRange() {} } };
+  h.leafModule.nextLeaf = leaf;
+  const modal = new h.FloatSearchModal(() => {}, h.plugin, { query: '' });
+  await modal.initSearchView(new ElementStub());
+  await h.clock.tick(0);
+  assert.equal(delayed.length, 1);
+});
+
 test('clearing native search cancels an earlier typed debounce', async () => {
   const h = createHarness();
   const input = createNativeTypingView(h);

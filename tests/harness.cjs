@@ -218,7 +218,7 @@ function createHarness() {
       AbortController, performance: { now: () => now },
       createDiv: () => new ElementStub(),
       document: { createElement: () => new ElementStub() },
-      window: {}, navigator: { language: 'en' },
+      window: { setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout }, navigator: { language: 'en' },
       MutationObserver: class { observe() {} disconnect() {} },
     };
     vm.runInNewContext(code, context, { filename });

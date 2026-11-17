@@ -62,7 +62,16 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 3 | Exclusion clause was a substring match in native search but a prefix match in CMDK; names containing `"` could alter the query | `-path:"..."` quoting | Anchored, escaped regex clauses (`-path:/^Archive\//`); one matcher for both paths; Obsidian's own `normalizePath` | `exclusions.test.ts`, e2e |
 | 4 | **Regex denial of service**: a user pattern like `^(a+)+$` froze Obsidian (exponential backtracking, uninterruptible) | Regex run over note bodies on the UI thread | `safe-regex2` rejects nested quantifiers; pattern and text length caps. Alternations like `(a\|aa)+` are not detected (residual risk) | `regex.test.ts`, `filterBar.test.ts` |
 | 5 | Release builds were not reproducible or hardened | `release.yml` ran `npm install` (ignoring the lockfile), mutable action tags, no `permissions`, Node 16, deprecated APIs | Replaced with the Search Jump scaffolding: bun + frozen lockfile, SHA-pinned actions, release-please, attested `main.js`, hk gates, Renovate | CI |
-| 6 | Inherited tests did not know about merged modules | vm harness stubs | Harness extended (`searchFilter`, `exclusions`, vault events, plugin helpers) | `tests/` |
+| 6 | Inherited tests did not know about merged modules | vm harness stubs | Harness loads any local module; stubs extended | `tests/` |
+| 7 | First settings change was silently dropped | A hack skipped the first debounced save to hide a startup rebuild (`allLoaded`) | The rebuild is suppressed explicitly; every real change persists. View-state hooks consolidated into `persistViewState` | e2e |
+| 8 | A hand-edited or synced `data.json` of the wrong shape could stop the plugin loading | Unvalidated `Object.assign` | `sanitizeSettings` validates every field and falls back to defaults; the legacy `filterButtons` migration (only for an intermediate fork build) was dropped | `settings.test.ts`, e2e |
+| 9 | Saved-search commands collided for non-Latin names (every Chinese name became `savedsearch-x`) and went stale after edit/delete | Command ids were a Latin-only slug of the name | Presets have stable ids; commands are keyed by id, re-synced on add/edit/delete, and look the query up at run time. Hotkeys survive renames. (Hotkeys bound to the old slug ids need rebinding once.) | `settings.test.ts`, e2e |
+| 10 | Text typed right after opening the search could be overwritten | The delayed state re-apply ignored the input | It only re-applies while the input is untouched | `tests/`, e2e |
+| 11 | Concurrent `layout-change` events could patch the search view twice | `patchSearch` is async and was re-entrant | Single-flight guard | review |
+| 12 | Re-running the same external query silently did nothing, forever | `lastRoutedQuery` was never reset | Duplicates are ignored only within one second | review |
+| 13 | Backlink command broke for file names with regex characters | Name inserted into a regex unescaped | `escapeRegex` | `regex.test.ts` |
+| 14 | `obsidian://fs` accepted any `viewType` | Cast without validation | Whitelisted via `parseViewType`, falling back to the modal | `settings.test.ts`, e2e |
+| 15 | Module-level `activePlugin` outlived the plugin | Global used by a free function | Now a plugin method; seven copies of "open modal or leaf" became `openSearch()` | e2e |
 
 ## Test coverage added
 
@@ -75,19 +84,12 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 
 Tracked from the code review; move a row to the fixes table when done.
 
-- Settings: first debounced change is dropped (`allLoaded`); settings are not validated on load.
-- Saved-search commands: Latin-only slug ids collide for non-Latin names, and commands go stale on edit/delete.
-- `patchSearch` can double-patch under concurrent `layout-change`.
-- `lastRoutedQuery` is never reset.
-- Delayed `setState` can overwrite text typed right after opening.
 - Tag matching treats any frontmatter value as a tag.
-- Unescaped file name in the backlink regex command.
 - Double-tap shortcut and timers only work in the main window, not popouts.
 - Quick-create has no collision handling.
-- URI handler does not validate `viewType`.
 - `innerHTML` for the filter icons.
 - Preview auto-renders notes (other plugins' code blocks run); decision pending.
-- Consolidation: seven copies of "open modal or leaf", two preview implementations,
-  two i18n systems, 3,600-line main file, dead code, hand-rolled helpers that
-  Obsidian already provides (`moment`, `getAllTags`, `cache.blocks`/`listItems`).
+- Consolidation: two preview implementations, two i18n systems, 3,600-line main
+  file, dead code, hand-rolled helpers that Obsidian already provides (`moment`,
+  `getAllTags`, `cache.blocks`/`listItems`).
 - Lint backlog (`eslint-plugin-obsidianmd`).

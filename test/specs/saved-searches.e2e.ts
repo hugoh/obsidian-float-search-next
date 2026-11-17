@@ -18,15 +18,13 @@ describe("Saved searches", () => {
 
 	it("registers a command that opens quick search pre-filtered", async () => {
 		await waitForPlugin();
-		await browser.executeObsidian(
-			({ app }, id) => {
-				const plugin = (app as any).plugins.plugins[id];
-				plugin.addSavedSearch("Fruit notes", "path:Notes");
-			},
-			PLUGIN_ID,
-		);
+		const presetId = await browser.executeObsidian(async ({ app }, id) => {
+			const plugin = app.plugins.plugins[id];
+			await plugin.addSavedSearch("Fruit notes", "path:Notes");
+			return plugin.settings.savedSearches.at(-1)?.id ?? "";
+		}, PLUGIN_ID);
 
-		await browser.executeObsidianCommand(`${PLUGIN_ID}:savedsearch-fruit-notes`);
+		await browser.executeObsidianCommand(`${PLUGIN_ID}:savedsearch-${presetId}`);
 		await browser.$(".float-search-cmdk").waitForExist();
 		await waitForResult("Banana");
 		expect(await hasResult("Pineapple")).toBe(false);

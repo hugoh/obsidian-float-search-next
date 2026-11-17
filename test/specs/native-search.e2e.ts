@@ -25,9 +25,6 @@ describe("Floating native search", () => {
 		await browser.waitUntil(() => input.isFocused(), {
 			timeoutMsg: "the search input never received focus",
 		});
-		// The modal re-applies its saved state shortly after opening; typing
-		// inside that window would be overwritten, which a person cannot do.
-		await browser.pause(500);
 		// Type into the focused field, like a user, so the injected exclusion clause survives.
 		await browser.keys(query.split(""));
 	}

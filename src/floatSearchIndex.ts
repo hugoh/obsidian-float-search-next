@@ -36,6 +36,18 @@ import {
 	stripExclusion,
 	withExclusion,
 } from "./exclusions";
+import {
+	DEFAULT_SETTINGS,
+	newSavedSearchId,
+	parseViewType,
+	sanitizeSettings,
+	type CmdkTriggerKey,
+	type FloatSearchSettings,
+	type SearchState,
+	type SearchType,
+	type SortOrder,
+} from "./settings";
+import { escapeRegex } from "./regex";
 import { around } from "monkey-around";
 import { debounce } from "obsidian";
 import { strings, t } from "./i18n";
@@ -49,88 +61,10 @@ import {
 	watchNativeSearchResults,
 } from "./filterBar";
 
-type sortOrder =
-	| "alphabetical"
-	| "alphabeticalReverse"
-	| "byModifiedTime"
-	| "byModifiedTimeReverse"
-	| "byCreatedTime"
-	| "byCreatedTimeReverse";
-
-type searchType = "modal" | "sidebar" | PaneType;
-
 interface viewType {
-	type: searchType;
+	type: SearchType;
 	icon: string;
 }
-
-interface searchState extends Record<string, unknown> {
-	collapseAll?: boolean;
-	explainSearch?: boolean;
-	extraContext?: boolean;
-	matchingCase?: boolean;
-	query: string;
-	sortOrder?: sortOrder;
-	current?: boolean;
-}
-
-type CmdkTriggerKey = "Shift" | "Control" | "Alt" | "Meta" | "none";
-
-interface SavedSearch {
-	name: string;
-	query: string;
-}
-
-interface FloatSearchSettings {
-	searchViewState: searchState;
-	showFilePath: boolean;
-	showInstructions: boolean;
-	defaultViewType: searchType;
-	cmdkTriggerKey: CmdkTriggerKey;
-	cmdkDoubleTapInterval: number;
-	cmdkQuickCreate: boolean;
-	cmdkQuickCreateFolder: string;
-	cmdkQuickCreateTitleFormat: string;
-	filterIncludeBases: boolean;
-	filterIncludeCanvas: boolean;
-	filterStarredOnly: boolean;
-	filterMatchCase: boolean;
-	filterUseRegex: boolean;
-	excludeFolders: string[];
-	excludeFiles: string[];
-	savedSearches: SavedSearch[];
-}
-
-const DEFAULT_SETTINGS: FloatSearchSettings = {
-	searchViewState: {
-		collapseAll: false,
-		explainSearch: false,
-		extraContext: false,
-		matchingCase: false,
-		query: "",
-		sortOrder: "alphabetical",
-	},
-	showFilePath: false,
-	showInstructions: true,
-	defaultViewType: "modal",
-	cmdkTriggerKey: "Shift",
-	cmdkDoubleTapInterval: 300,
-	cmdkQuickCreate: false,
-	cmdkQuickCreateFolder: "",
-	cmdkQuickCreateTitleFormat: "YYYYMMDDHHmmss",
-	filterIncludeBases: true,
-	filterIncludeCanvas: true,
-	filterStarredOnly: false,
-	filterMatchCase: false,
-	filterUseRegex: false,
-	excludeFolders: [],
-	excludeFiles: [],
-	savedSearches: [],
-};
-
-// Single plugin instance, used to apply exclusion rules inside module-scope helpers
-// (e.g. initSearchViewWithLeaf) that don't otherwise have access to the plugin.
-let activePlugin: FloatSearchPlugin | null = null;
 
 const allViews: viewType[] = [
 	{
@@ -155,65 +89,39 @@ const allViews: viewType[] = [
 	},
 ];
 
-const initSearchViewWithLeaf = async (
-	app: App,
-	type: PaneType | "sidebar",
-	state?: searchState
-) => {
-	const leaf =
-		type === "sidebar"
-			? app.workspace.getLeftLeaf(false)
-			: app.workspace.getLeaf(type);
-	leaf?.setPinned(type !== "sidebar");
-	await leaf?.setViewState({
-		type: "search",
-		active: true,
-		state: {
-			...DEFAULT_SETTINGS.searchViewState,
-			...state,
-			query: activePlugin
-				? activePlugin.withExclusion(
-						new SearchFilter(app).toNativeQuery(
-							(state?.query as string) ?? ""
-						)
-				  )
-				: new SearchFilter(app).toNativeQuery(
-						(state?.query as string) ?? ""
-				  ),
-			triggerBySelf: true,
-		},
-	});
-
-	setTimeout(() => {
-		const inputEl = leaf?.containerEl.getElementsByTagName("input")?.[0];
-		inputEl?.focus();
-	}, 0);
-};
-
 export default class FloatSearchPlugin extends Plugin {
 	settings: FloatSearchSettings;
-	private state: searchState;
+	private state: SearchState;
 	private modal: FloatSearchModal;
 	private cmdkModal: FloatSearchCmdkModal;
 
-	allLoaded = false;
 	queryLoaded = false;
 
-	// Candidate ① guards: prevent the setState re-route from spawning a new
-	// Float Search on every external setState (which would loop forever and
-	// freeze Obsidian). `routingQuery` blocks re-entrancy; `lastRoutedQuery`
-	// deduplicates repeated setStates carrying the same query.
-	routingQuery: boolean = false;
-	lastRoutedQuery: string = "";
+	// Guards for the setState re-route, which would otherwise spawn a new Float
+	// Search on every external setState and loop forever. `routingQuery` blocks
+	// re-entrancy; `lastRouted` ignores the same query repeated within a second.
+	routing = false;
+	private lastRouted = { query: "", at: 0 };
 
-	patchedDomChildren = false;
+	/** True while a freshly patched search view rebuilds itself. */
+	private suppressViewStatePersist = false;
+
+	isDuplicateRoute(query: string): boolean {
+		const now = Date.now();
+		const duplicate =
+			query === this.lastRouted.query && now - this.lastRouted.at < 1000;
+		this.lastRouted = { query, at: now };
+		return duplicate;
+	}
+
+	persistViewState(patch: Partial<SearchState>) {
+		if (!this.app.workspace.layoutReady || this.suppressViewStatePersist) return;
+		Object.assign(this.settings.searchViewState, patch);
+		this.applySettingsUpdate();
+	}
 
 	public applySettingsUpdate = debounce(async () => {
-		if (!this.allLoaded) {
-			this.allLoaded = true;
-			return;
-		}
-		// Ensure all searchState properties are preserved
+		// Ensure all search state properties are preserved
 		this.settings.searchViewState = {
 			...DEFAULT_SETTINGS.searchViewState,
 			...this.settings.searchViewState,
@@ -233,7 +141,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-		activePlugin = this;
+		
 
 		this.app.workspace.onLayoutReady(() => {
 			this.initState();
@@ -256,21 +164,7 @@ export default class FloatSearchPlugin extends Plugin {
 		this.addRibbonIcon(
 			"float-search-window",
 			strings().ribbonSearch(this.settings.defaultViewType),
-			() => {
-				this.ensurePatched();
-				if (this.settings.defaultViewType === "modal") {
-					this.initModal(this.state, true, true);
-				} else {
-					initSearchViewWithLeaf(
-						this.app,
-						this.settings.defaultViewType,
-						{
-							...this.state,
-							query: "",
-						}
-					);
-				}
-			}
+			() => void this.openSearch(this.state, undefined, true)
 		);
 		this.updateFilePathVisibility();
 		this.addSettingTab(new FloatSearchSettingTab(this.app, this));
@@ -428,53 +322,75 @@ export default class FloatSearchPlugin extends Plugin {
 	}
 
 	// ── Saved searches ────────────────────────────────────────────────
-	private slug(name: string): string {
-		return (
-			name
-				.trim()
-				.toLowerCase()
-				.replace(/[^a-z0-9]+/g, "-")
-				.replace(/^-+|-+$/g, "") || "x"
-		);
-	}
+	// One palette command per preset, keyed by the preset's stable id (not its
+	// name), so hotkeys survive renames and non-Latin names cannot collide.
+	private savedSearchCommands = new Map<string, string>();
 
-	private registeredSavedIds = new Set<string>();
-
-	registerSavedSearchCommands() {
-		for (const s of this.settings.savedSearches) {
-			const id = "savedsearch-" + this.slug(s.name);
-			if (this.registeredSavedIds.has(id)) continue;
-			this.registeredSavedIds.add(id);
+	syncSavedSearchCommands() {
+		const presets = new Map(this.settings.savedSearches.map((s) => [s.id, s]));
+		for (const [id, name] of this.savedSearchCommands) {
+			if (presets.get(id)?.name === name) continue;
+			this.app.commands.removeCommand(`${this.manifest.id}:savedsearch-${id}`);
+			this.savedSearchCommands.delete(id);
+		}
+		for (const preset of presets.values()) {
+			if (this.savedSearchCommands.has(preset.id)) continue;
+			this.savedSearchCommands.set(preset.id, preset.name);
 			this.addCommand({
-				id,
-				name: t("savedSearchCmd", { name: s.name }),
-				callback: () => this.openCmdkModal([s.query]),
+				id: `savedsearch-${preset.id}`,
+				name: t("savedSearchCmd", { name: preset.name }),
+				callback: () => {
+					const latest = this.settings.savedSearches.find((s) => s.id === preset.id);
+					if (latest) this.openCmdkModal([latest.query]);
+				},
 			});
 		}
 	}
 
-	addSavedSearch(name: string, query: string) {
-		this.settings.savedSearches.push({ name, query });
-		this.saveSettings();
-		this.registerSavedSearchCommands();
+	async addSavedSearch(name: string, query: string) {
+		this.settings.savedSearches.push({ id: newSavedSearchId(), name, query });
+		await this.saveSettings();
+		this.syncSavedSearchCommands();
 	}
 
-	// Open the main Float Search (modal or configured view) with a query.
-	// Exclusion rules are applied automatically by the target search view.
-	openSearchWithQuery(query: string) {
-		this.ensurePatched();
-		const viewType = this.settings.defaultViewType;
-		const nativeQuery = new SearchFilter(this.app).toNativeQuery(query);
-		const state = { ...this.state, query: nativeQuery, current: true };
+	private async openInLeaf(type: PaneType | "sidebar", state?: SearchState) {
+		const leaf =
+			type === "sidebar"
+				? this.app.workspace.getLeftLeaf(false)
+				: this.app.workspace.getLeaf(type);
+		leaf?.setPinned(type !== "sidebar");
+		await leaf?.setViewState({
+			type: "search",
+			active: true,
+			state: {
+				...DEFAULT_SETTINGS.searchViewState,
+				...state,
+				query: this.withExclusion(
+					new SearchFilter(this.app).toNativeQuery(state?.query ?? "")
+				),
+				triggerBySelf: true,
+			},
+		});
+
+		window.setTimeout(() => {
+			leaf?.containerEl.getElementsByTagName("input")[0]?.focus();
+		}, 0);
+	}
+
+	/** Open the float search in the given (default: configured) view. */
+	openSearch(
+		state: SearchState,
+		viewType: SearchType = this.settings.defaultViewType,
+		clearQuery = false
+	): Promise<void> {
 		if (viewType === "modal") {
-			this.initModal(state, true, false);
-		} else {
-			initSearchViewWithLeaf(
-				this.app,
-				viewType as PaneType | "sidebar",
-				state
-			);
+			this.initModal(state, true, clearQuery);
+			return Promise.resolve();
 		}
+		this.ensurePatched();
+		return this.openInLeaf(viewType,
+			clearQuery ? { ...state, query: "" } : state
+		);
 	}
 
 	initState() {
@@ -491,7 +407,7 @@ export default class FloatSearchPlugin extends Plugin {
 	}
 
 	initModal(
-		state: searchState,
+		state: SearchState,
 		stateSave = false,
 		clearQuery = false
 	) {
@@ -727,7 +643,7 @@ export default class FloatSearchPlugin extends Plugin {
 
 		const initViewMenu = (
 			menu: Menu,
-			current: searchType,
+			current: SearchType,
 			originLeaf?: WorkspaceLeaf
 		) => {
 			menu.dom.toggleClass("float-search-view-menu", true);
@@ -749,25 +665,19 @@ export default class FloatSearchPlugin extends Plugin {
 									this.initModal(this.state, true, false);
 								}, 10);
 							} else if (view.type === "sidebar") {
-								await initSearchViewWithLeaf(
-									this.app,
-									view.type,
+								await this.openInLeaf(view.type,
 									this.state
 								);
 							} else {
 								if (current === "window") {
 									originLeaf?.detach();
 									setTimeout(async () => {
-										await initSearchViewWithLeaf(
-											this.app,
-											<"tab" | "split">view.type,
+										await this.openInLeaf(<"tab" | "split">view.type,
 											this.state
 										);
 									}, 10);
 								} else {
-									await initSearchViewWithLeaf(
-										this.app,
-										view.type,
+									await this.openInLeaf(view.type,
 										this.state
 									);
 								}
@@ -783,12 +693,28 @@ export default class FloatSearchPlugin extends Plugin {
 			return menu;
 		};
 
+		// `layout-change` can fire again while the first patch is still awaiting
+		// a deferred view, so patching must be single-flight.
+		let patched = false;
+		let patching = false;
 		const patchSearch = async () => {
+			if (patched) return true;
+			if (patching) return false;
 			const searchLeaf = this.app.workspace.getLeavesOfType("search")[0];
 			if (!searchLeaf) return false;
+			patching = true;
+			try {
+				return await patchSearchViewOf(searchLeaf);
+			} finally {
+				patching = false;
+			}
+		};
+
+		const patchSearchViewOf = async (searchLeaf: WorkspaceLeaf) => {
 			if (requireApiVersion("1.7.3") && searchLeaf.isDeferred) {
 				await searchLeaf.loadIfDeferred();
 			}
+
 
 			const searchView = searchLeaf?.view as any;
 			// Keep the plugin receiver across native method wrappers.
@@ -903,7 +829,7 @@ export default class FloatSearchPlugin extends Plugin {
 										);
 										dropdown.onChange((value) => {
 											self.settings.defaultViewType =
-												value as searchType;
+												value as SearchType;
 											self.applySettingsUpdate();
 										});
 									});
@@ -913,61 +839,37 @@ export default class FloatSearchPlugin extends Plugin {
 					setExplainSearch(old) {
 						return function (value: boolean) {
 							old.call(this, value);
-							if (self.app.workspace.layoutReady) {
-								self.settings.searchViewState.explainSearch =
-									value;
-								self.applySettingsUpdate();
-							}
+							self.persistViewState({ explainSearch: value });
 						};
 					},
 					setCollapseAll(old) {
 						return function (value: boolean) {
 							old.call(this, value);
-							if (self.app.workspace.layoutReady) {
-								self.settings.searchViewState.collapseAll =
-									value;
-								self.applySettingsUpdate();
-							}
+							self.persistViewState({ collapseAll: value });
 						};
 					},
 					setExtraContext(old) {
 						return function (value: boolean) {
 							old.call(this, value);
-							if (self.app.workspace.layoutReady) {
-								self.settings.searchViewState.extraContext =
-									value;
-								self.applySettingsUpdate();
-							}
+							self.persistViewState({ extraContext: value });
 						};
 					},
 					setMatchingCase(old) {
 						return function (value: boolean) {
 							old.call(this, value);
-							if (self.app.workspace.layoutReady) {
-								self.settings.searchViewState.matchingCase =
-									value;
-								self.applySettingsUpdate();
-							}
+							self.persistViewState({ matchingCase: value });
 						};
 					},
 					setSortOrder(old) {
 						return function (value: string) {
 							old.call(this, value);
-							if (self.app.workspace.layoutReady) {
-								self.settings.searchViewState.sortOrder =
-									value as sortOrder;
-								self.applySettingsUpdate();
-							}
+							self.persistViewState({ sortOrder: value as SortOrder });
 						};
 					},
 					setQuery(old) {
 						return function (value: string) {
 							old.call(this, value);
-							if (self.app.workspace.layoutReady) {
-								self.settings.searchViewState.query =
-									self.stripExclusion(value);
-								self.applySettingsUpdate();
-							}
+							self.persistViewState({ query: self.stripExclusion(value) });
 						};
 					},
 				setState(old) {
@@ -985,41 +887,22 @@ export default class FloatSearchPlugin extends Plugin {
 								// would recurse) and against spawning again for
 								// the SAME query (which would otherwise loop
 								// endlessly and freeze Obsidian).
-								const changed =
+								if (
 									state.query &&
-									state.query !== self.lastRoutedQuery;
-								if (changed && !self.routingQuery) {
-									self.routingQuery = true;
+									!self.routing &&
+									!self.isDuplicateRoute(state.query)
+								) {
+									self.routing = true;
 									try {
-										if (
-											self.settings.defaultViewType ===
-											"modal"
-										) {
-											self.initModal(
-												{
-													...state,
-													query: state.query,
-													current: false,
-													triggerBySelf: true,
-												},
-												true,
-												false
-											);
-										} else {
-											initSearchViewWithLeaf(
-												self.app,
-												self.settings.defaultViewType,
-												{
-													...state,
-													query: state.query,
-													current: false,
-													triggerBySelf: true,
-												}
-											);
-										}
-										self.lastRoutedQuery = state.query;
+										void self.openSearch({
+											...state,
+											query: state.query,
+											current: false,
+											triggerBySelf: true,
+										});
+										
 									} finally {
-										self.routingQuery = false;
+										self.routing = false;
 									}
 								}
 								// The Float Search takes over; do NOT apply the
@@ -1036,7 +919,14 @@ export default class FloatSearchPlugin extends Plugin {
 				},
 				})
 			);
+			// Rebuilding replays the view's state through the patched setters; that
+			// must not overwrite the saved float-search state.
+			this.suppressViewStatePersist = true;
 			searchView.leaf?.rebuildView();
+			window.setTimeout(() => {
+				this.suppressViewStatePersist = false;
+			}, 250);
+			patched = true;
 			return true;
 		};
 		this.app.workspace.onLayoutReady(async () => {
@@ -1144,30 +1034,12 @@ export default class FloatSearchPlugin extends Plugin {
 		this.registerObsidianProtocolHandler(
 			"fs",
 			async (path: ObsidianProtocolData) => {
-				const viewType = path.viewType || "modal";
+				const viewType = parseViewType(path.viewType) ?? "modal";
 				const query = path.query || "";
-
-				if (viewType === "modal") {
-					this.initModal(
-						{
-							...this.state,
-							query,
-							current: false,
-						},
-						true,
-						false
-					);
-				} else {
-					await initSearchViewWithLeaf(
-						this.app,
-						viewType as PaneType | "sidebar",
-						{
-							...this.state,
-							query,
-							current: false,
-						}
-					);
-				}
+				await this.openSearch(
+					{ ...this.state, query, current: false },
+					viewType
+				);
 			}
 		);
 	}
@@ -1178,71 +1050,30 @@ export default class FloatSearchPlugin extends Plugin {
 		queryBuilder: (file?: TFile) => string;
 		global: boolean;
 	}): void {
+		const open = (query: string) =>
+			void this.openSearch({ ...this.state, query, current: true });
+
 		if (options.global) {
 			this.addCommand({
 				id: options.id,
 				name: options.name,
-				callback: () => {
-					const query = options.queryBuilder();
-					const viewType = this.settings.defaultViewType;
-
-					if (viewType === "modal") {
-						this.initModal(
-							{ ...this.state, query, current: true },
-							true,
-							false
-						);
-					} else {
-						initSearchViewWithLeaf(
-							this.app,
-							viewType as PaneType | "sidebar",
-							{
-								...this.state,
-								query,
-								current: true,
-							}
-						);
-					}
-				},
+				callback: () => open(options.queryBuilder()),
 			});
-		} else {
-			this.addCommand({
-				id: options.id,
-				name: options.name,
-				checkCallback: (checking: boolean) => {
-					const activeLeaf = this.app.workspace.activeLeaf;
-					if (!activeLeaf) return;
-
-					const viewType = activeLeaf.view.getViewType();
-					if (viewType === "markdown" || viewType === "canvas") {
-						if (!checking) {
-							const currentFile = activeLeaf.view.file;
-							const query = options.queryBuilder(currentFile);
-							const viewType = this.settings.defaultViewType;
-
-							if (viewType === "modal") {
-								this.initModal(
-									{ ...this.state, query, current: true },
-									true,
-									false
-								);
-							} else {
-								initSearchViewWithLeaf(
-									this.app,
-									viewType as PaneType | "sidebar",
-									{
-										...this.state,
-										query,
-										current: true,
-									}
-								);
-							}
-						}
-						return true;
-					}
-				},
-			});
+			return;
 		}
+
+		this.addCommand({
+			id: options.id,
+			name: options.name,
+			checkCallback: (checking: boolean) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!file || (file.extension !== "md" && file.extension !== "canvas")) {
+					return false;
+				}
+				if (!checking) open(options.queryBuilder(file));
+				return true;
+			},
+		});
 	}
 
 	registerObsidianCommands() {
@@ -1283,7 +1114,7 @@ export default class FloatSearchPlugin extends Plugin {
 				if (!file) return "";
 				return (
 					" /\\[\\[" +
-					(file.extension === "canvas" ? file.name : file.basename) +
+					escapeRegex(file.extension === "canvas" ? file.name : file.basename) +
 					"(\\|[^\\]]*)?\\]\\]/"
 				);
 			},
@@ -1323,7 +1154,7 @@ export default class FloatSearchPlugin extends Plugin {
 								);
 								return;
 							}
-							await initSearchViewWithLeaf(this.app, type, {
+							await this.openInLeaf(type, {
 								...this.state,
 								triggerBySelf: true,
 							});
@@ -1347,7 +1178,7 @@ export default class FloatSearchPlugin extends Plugin {
 								});
 								return;
 							}
-							await initSearchViewWithLeaf(this.app, type, {
+							await this.openInLeaf(type, {
 								...this.state,
 								triggerBySelf: true,
 							});
@@ -1358,7 +1189,7 @@ export default class FloatSearchPlugin extends Plugin {
 			});
 		}
 
-		this.registerSavedSearchCommands();
+		this.syncSavedSearchCommands();
 	}
 
 	registerSearchOperatorCommands() {
@@ -1565,38 +1396,7 @@ export default class FloatSearchPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		type LegacySettings = Partial<FloatSearchSettings> & {
-			filterButtons?: { name: string; query: string }[];
-		};
-		const data = ((await this.loadData()) ?? {}) as LegacySettings;
-		const merged: FloatSearchSettings & {
-			filterButtons?: { name: string; query: string }[];
-		} = Object.assign({}, DEFAULT_SETTINGS, data);
-		merged.excludeFolders = [...(merged.excludeFolders ?? [])];
-		merged.excludeFiles = [...(merged.excludeFiles ?? [])];
-		merged.savedSearches = [...(merged.savedSearches ?? [])];
-
-		// Merge the legacy "filter buttons" feature into saved searches so the
-		// single preset list drives the CMDK filter chips.
-		if (Array.isArray(data.filterButtons)) {
-			for (const fb of data.filterButtons) {
-				if (
-					fb?.name &&
-					fb?.query &&
-					!merged.savedSearches.some(
-						(s) => s.query.trim() === fb.query.trim()
-					)
-				) {
-					merged.savedSearches.push({
-						name: fb.name,
-						query: fb.query,
-					});
-				}
-			}
-			delete merged.filterButtons;
-		}
-
-		this.settings = merged;
+		this.settings = sanitizeSettings(await this.loadData());
 	}
 
 	async saveSettings() {
@@ -1810,7 +1610,7 @@ class FloatSearchSettingTab extends PluginSettingTab {
 				});
 				dropdown.setValue(this.plugin.settings.defaultViewType);
 				dropdown.onChange((value) => {
-					this.plugin.settings.defaultViewType = value as searchType;
+					this.plugin.settings.defaultViewType = value as SearchType;
 					this.plugin.applySettingsUpdate();
 				});
 			});
@@ -2012,7 +1812,7 @@ class FloatSearchSettingTab extends PluginSettingTab {
 					const name = nameInput?.inputEl.value.trim();
 					const query = queryInput?.inputEl.value.trim();
 					if (name && query) {
-					this.plugin.addSavedSearch(name, query);
+					await this.plugin.addSavedSearch(name, query);
 					this.renderSavedList();
 					nameInput.inputEl.value = "";
 					queryInput.inputEl.value = "";
@@ -2093,11 +1893,12 @@ class FloatSearchSettingTab extends PluginSettingTab {
 					const newQuery = queryField.value.trim();
 					if (newName && newQuery) {
 						this.plugin.settings.savedSearches[i] = {
+							id: s.id,
 							name: newName,
 							query: newQuery,
 						};
 						await this.plugin.saveSettings();
-						this.plugin.registerSavedSearchCommands();
+						this.plugin.syncSavedSearchCommands();
 						this.renderSavedList();
 					}
 				};
@@ -2112,6 +1913,7 @@ class FloatSearchSettingTab extends PluginSettingTab {
 			del.onClickEvent(async () => {
 				this.plugin.settings.savedSearches.splice(i, 1);
 				await this.plugin.saveSettings();
+				this.plugin.syncSavedSearchCommands();
 				this.renderSavedList();
 			});
 		});
@@ -2309,27 +2111,28 @@ class FloatSearchModal extends Modal {
 		this.searchEmbeddedView = embeddedView;
 
 		this.searchLeaf.setPinned(true);
+		const initialQuery = this.plugin.withExclusion(this.state.query ?? "");
+		const initialState = {
+			...this.state,
+			query: initialQuery,
+			matchingCase: this.plugin.settings.filterMatchCase,
+		};
 		await this.searchLeaf.setViewState({
 			type: "search",
-			state: {
-				...this.state,
-				query: this.plugin.withExclusion(this.state.query ?? ""),
-				matchingCase: this.plugin.settings.filterMatchCase,
-				triggerBySelf: true,
-			},
+			state: { ...initialState, triggerBySelf: true },
 		});
 
-		setTimeout(async () => {
+		window.setTimeout(async () => {
 			if (this.closed) return;
-			await this.searchLeaf.view.setState(
-				{
-					...this.state,
-					query: this.plugin.withExclusion(this.state.query ?? ""),
-					matchingCase: this.plugin.settings.filterMatchCase,
-					triggerBySelf: true,
-				},
-				{ history: false }
-			);
+			// The view re-applies the saved state once it has settled, but never
+			// over text the user already typed.
+			const typed = (this.searchLeaf.view as SearchView).searchComponent?.inputEl?.value;
+			if (!typed || typed === initialQuery) {
+				await this.searchLeaf.view.setState(
+					{ ...initialState, triggerBySelf: true },
+					{ history: false }
+				);
+			}
 			if (this.closed) return;
 			const searchComponent = (this.searchLeaf.view as SearchView)
 				.searchComponent;
@@ -3434,7 +3237,7 @@ class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
 			const current = this.inputEl.value.trim();
 			const name = await promptForName(this.app, current);
 			if (name) {
-				this.plugin.addSavedSearch(name, current);
+				await this.plugin.addSavedSearch(name, current);
 			}
 			this.close();
 			return;
