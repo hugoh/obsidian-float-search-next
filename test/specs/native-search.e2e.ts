@@ -16,6 +16,27 @@ async function waitForResults() {
   });
 }
 
+const SEARCH_INPUT = ".float-search-modal .search-input-container input";
+
+async function nativeTitles(): Promise<string[]> {
+  return browser.execute(
+    (selector) =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(selector),
+        (el) => el.innerText.split("\n")[0] ?? "",
+      ),
+    TITLES,
+  );
+}
+
+async function nudgeSearch() {
+  await browser.execute((selector) => {
+    document
+      .querySelector<HTMLInputElement>(selector)
+      ?.dispatchEvent(new Event("input", { bubbles: true }));
+  }, SEARCH_INPUT);
+}
+
 describe("Floating native search", () => {
   afterEach(async () => {
     await closeModals();
@@ -90,18 +111,13 @@ describe("Floating native search", () => {
     await updateSettings({ excludeFolders: ["Archive"] });
     await searchFor("pineapple");
     let texts: string[] = [];
-    // The list re-renders as results stream in, so wait for a readable, complete one.
+    // The list re-renders as results stream in, so read it in one atomic DOM pass.
+    // If the first search came back empty, nudge it with another input event.
     await browser.waitUntil(
       async () => {
-        try {
-          texts = [];
-          for (const el of await browser.$$(TITLES)) {
-            texts.push((await el.getText()).split("\n")[0] ?? "");
-          }
-          return texts.includes("Pineapple");
-        } catch {
-          return false;
-        }
+        texts = await nativeTitles();
+        if (texts.length === 0) await nudgeSearch();
+        return texts.includes("Pineapple");
       },
       {
         timeoutMsg: `the native search never listed Pineapple; saw ${JSON.stringify(texts)} for input ${JSON.stringify(await browser.$(".float-search-modal .search-input-container input").getValue())}`,
