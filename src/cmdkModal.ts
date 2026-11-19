@@ -40,6 +40,11 @@ import {
   SearchFilter,
 } from "./searchFilter";
 
+const formatNow = (format: string): string =>
+  (moment as unknown as () => { format(pattern: string): string })().format(
+    format,
+  );
+
 export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
   plugin: FloatSearchPlugin;
   private bodyEl: HTMLElement;
@@ -653,7 +658,7 @@ export class FloatSearchCmdkModal extends SuggestModal<CmdkResult> {
   ) {
     const settings = this.plugin.settings;
     const title = safeFileName(
-      moment().format(settings.cmdkQuickCreateTitleFormat || "YYYYMMDDHHmmss"),
+      formatNow(settings.cmdkQuickCreateTitleFormat || "YYYYMMDDHHmmss"),
       strings().untitled,
     );
     const folder = normalizePath(settings.cmdkQuickCreateFolder);
