@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/hugoh/obsidian-floating-search-next/compare/0.1.2...0.1.3) (2026-11-19)
+
+
+### Bug Fixes
+
+* initialise state at load and merge window-open handlers ([#11](https://github.com/hugoh/obsidian-floating-search-next/issues/11)) ([fac5817](https://github.com/hugoh/obsidian-floating-search-next/commit/fac58172164e69fc731bb89ee5594b255414ed5f))
+
 ## [0.1.2](https://github.com/hugoh/obsidian-floating-search-next/compare/0.1.1...0.1.2) (2026-11-19)
 
 
