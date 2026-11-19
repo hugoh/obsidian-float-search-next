@@ -15,9 +15,9 @@ test("LICENSE is the unmodified GPL text so license detection recognises it", ()
   assert.match(read("LICENSE"), /^\s*GNU GENERAL PUBLIC LICENSE\s+Version 3, 29 June 2007/);
 });
 
-test("manifest minAppVersion covers the Obsidian APIs the plugin imports", () => {
+test("manifest minAppVersion covers the Obsidian APIs the plugin uses", () => {
   const { minAppVersion } = JSON.parse(read("manifest.json"));
-  const [major, minor, patch] = minAppVersion.split(".").map(Number);
-  const atLeast187 = major > 1 || (major === 1 && (minor > 8 || (minor === 8 && patch >= 7)));
-  assert.ok(atLeast187, "getLanguage() needs 1.8.7");
+  const [major, minor] = minAppVersion.split(".").map(Number);
+  const atLeast113 = major > 1 || (major === 1 && minor >= 13);
+  assert.ok(atLeast113, "declarative settings (getSettingDefinitions) need 1.13");
 });

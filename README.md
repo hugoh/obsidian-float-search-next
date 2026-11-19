@@ -111,7 +111,7 @@ Everything below is in addition to the usage described above.
 
 - Native file opening, regex queries and preview lifecycle (stale previews, late focus after closing); a crash when highlighting inside embedded previews; `setState` re-entry loops and memory leaks.
 
-Requires Obsidian 1.8.7 or later.
+Requires Obsidian 1.13 or later.
 
 ## Development
 
