@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/hugoh/obsidian-floating-search-next/compare/0.1.1...0.1.2) (2026-11-19)
+
+
+### Bug Fixes
+
+* address community scorecard findings and lint the gaps ([#9](https://github.com/hugoh/obsidian-floating-search-next/issues/9)) ([cb119a0](https://github.com/hugoh/obsidian-floating-search-next/commit/cb119a0cdd65fa1b398dd1d79ba380af712babb7))
+
 ## [0.1.1](https://github.com/hugoh/obsidian-floating-search-next/compare/0.1.0...0.1.1) (2026-11-19)
 
 
