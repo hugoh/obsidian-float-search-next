@@ -11,6 +11,26 @@ export async function waitForPlugin() {
       }, PLUGIN_ID),
     { timeoutMsg: "the plugin never finished loading" },
   );
+  await waitForVaultIndexed();
+}
+
+// Searching before Obsidian has indexed the vault yields an empty list that never refreshes.
+export async function waitForVaultIndexed() {
+  await browser.waitUntil(
+    async () =>
+      browser.executeObsidian(({ app }) => {
+        const files = app.vault.getMarkdownFiles();
+        return (
+          app.workspace.layoutReady &&
+          files.length > 0 &&
+          files.every((file) => app.metadataCache.getFileCache(file))
+        );
+      }),
+    {
+      timeout: 30_000,
+      timeoutMsg: "Obsidian never finished indexing the vault",
+    },
+  );
 }
 
 export async function openCmdk(initialFilters?: string[]) {
@@ -41,10 +61,14 @@ export async function updateSettings(patch: Record<string, unknown>) {
 }
 
 export async function resultTexts(): Promise<string[]> {
-  const items = await browser.$$(".float-search-cmdk .suggestion-item");
-  const texts: string[] = [];
-  for (const item of items) texts.push(await item.getText());
-  return texts;
+  return browser.execute(() =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>(
+        ".float-search-cmdk .suggestion-item",
+      ),
+      (item) => item.innerText,
+    ),
+  );
 }
 
 export async function hasResult(text: string): Promise<boolean> {
