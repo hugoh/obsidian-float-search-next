@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0](https://github.com/hugoh/obsidian-floating-search-next/compare/0.1.0...0.1.0) (2026-11-19)
+
+
+### Bug Fixes
+
+* **deps:** update monkey-around to v3, builtin-modules to v5, eslint-plugin-obsidianmd to v0.6 ([#4](https://github.com/hugoh/obsidian-floating-search-next/issues/4)) ([f947f16](https://github.com/hugoh/obsidian-floating-search-next/commit/f947f164e2e107fe36ed8db43ae8c683b9478efa))
+* **test:** stabilise e2e specs that race the vault index and result re-renders ([b1ab99f](https://github.com/hugoh/obsidian-floating-search-next/commit/b1ab99fc41588259d994cb581f95f3c5fe7c4c13))
+
 ## 0.1.0 (2026-11-19)
 
 
