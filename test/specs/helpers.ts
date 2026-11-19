@@ -1,6 +1,6 @@
 import { browser } from "@wdio/globals";
 
-export const PLUGIN_ID = "float-search-next";
+export const PLUGIN_ID = "floating-search-next";
 
 export async function waitForPlugin() {
   await browser.waitUntil(

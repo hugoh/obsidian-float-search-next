@@ -31,7 +31,7 @@ Not taken:
   and its URI fix deletes `.suggestion-container` from the DOM after a 10ms timer.
 - Rebranding (plugin id `float-search-window`, version numbers 1.x / 4.4-4.8) from
   the two forks. This project is its own plugin, **Floating Search Next**
-  (`float-search-next`) and starts its own version line at 0.1.0.
+  (`floating-search-next`) and starts its own version line at 0.1.0.
 - Agent notes, a stray temp file and `package-lock.json` from Peingxious's fork.
 
 All sources are GPL-3.0; see `LICENSE` and `NOTICE`.
