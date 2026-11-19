@@ -169,11 +169,11 @@ export default class FloatSearchPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    this.initState();
 
     this.registerIcons();
     registerFilterIcons();
     this.app.workspace.onLayoutReady(() => {
-      this.initState();
       // The prototype monkeypatches (patchWorkspace / patchSearchView / …)
       // are deferred to first use via ensurePatched() — they are only
       // needed once the user actually opens a float search, so we no
@@ -286,15 +286,11 @@ export default class FloatSearchPlugin extends Plugin {
 
     listen(activeDocument);
     this.registerEvent(
-      this.app.workspace.on("window-open", () =>
-        this.updateFilePathVisibility(),
-      ),
-    );
-    // Popout windows have their own document.
-    this.registerEvent(
-      this.app.workspace.on("window-open", (_workspaceWindow, win) =>
-        listen(win.document),
-      ),
+      this.app.workspace.on("window-open", (_workspaceWindow, win) => {
+        this.updateFilePathVisibility();
+        // Popout windows have their own document.
+        listen(win.document);
+      }),
     );
   }
 
