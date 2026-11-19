@@ -4,6 +4,10 @@ import { existsSync, renameSync } from "node:fs";
 const installed = "node_modules/moment";
 const hidden = "node_modules/.moment-hidden";
 
+if (existsSync(hidden) && !existsSync(installed)) {
+  renameSync(hidden, installed);
+}
+
 if (!existsSync(installed)) {
   console.error("node_modules/moment not found; run bun install first");
   process.exit(1);
