@@ -1016,12 +1016,12 @@ export default class FloatSearchPlugin extends Plugin {
     id: string;
     name: string;
     queryBuilder: (file?: TFile) => string;
-    global: boolean;
+    vaultWide: boolean;
   }): void {
     const open = (query: string) =>
       void this.openSearch({ ...this.state, query, current: true });
 
-    if (options.global) {
+    if (options.vaultWide) {
       this.addCommand({
         id: options.id,
         name: options.name,
@@ -1086,7 +1086,7 @@ export default class FloatSearchPlugin extends Plugin {
           "(\\|[^\\]]*)?\\]\\]/"
         );
       },
-      global: false,
+      vaultWide: false,
     });
 
     this.createCommand({
@@ -1096,7 +1096,7 @@ export default class FloatSearchPlugin extends Plugin {
         if (!file) return "";
         return " path:" + `"${file.path}"`;
       },
-      global: false,
+      vaultWide: false,
     });
 
     // Register search operator commands
@@ -1209,7 +1209,7 @@ export default class FloatSearchPlugin extends Plugin {
         id: operator.id,
         name: operator.name,
         queryBuilder: () => operator.query || "",
-        global: true,
+        vaultWide: true,
       });
     });
   }

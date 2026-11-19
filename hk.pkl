@@ -18,6 +18,14 @@ local linters = new Mapping<String, Step> {
         glob = List("src/**/*.ts", "test/**/*.ts", "manifest.json", "eslint.config.mjs", "package.json")
         check = "bun run lint"
     }
+    ["obsidian_lint_unresolved_types"] {
+        glob = List("src/**/*.ts")
+        check = "bun run lint:unresolved-types"
+    }
+    ["audit"] {
+        glob = List("package.json", "bun.lock")
+        check = "bun audit"
+    }
     ["typecheck"] {
         glob = List("**/*.ts", "**/*.mts", "tsconfig*.json", "test/tsconfig.json")
         check = "bun run typecheck"

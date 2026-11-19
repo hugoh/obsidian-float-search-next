@@ -38,9 +38,8 @@ jobs:
           DISPLAY=:99 herbstluftwm &
           sleep 1
 
-            # The oldest stable Obsidian at or above manifest.json's minAppVersion (1.5.7
-      # itself is a beta build, which needs an Insiders login), and the latest.
+            # The oldest stable Obsidian at or above manifest.json's minAppVersion (1.8.7), and the latest.
       - run: bun run test:e2e
         env:
           WDIO_MAX_INSTANCES: 1
-          OBSIDIAN_VERSIONS: "1.5.12/earliest latest/latest"
+          OBSIDIAN_VERSIONS: "1.8.7/earliest latest/latest"

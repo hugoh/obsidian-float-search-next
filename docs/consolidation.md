@@ -94,10 +94,11 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 | 33 | Mod+Shift+Enter named a note from the raw input: link characters (`#`, `^`, `[`, `]`) were kept and the injected exclusion clause leaked into the name | Incomplete sanitising | `noteNameFromText` (after stripping the clause); nothing usable means nothing is created | `quickCreate.test.ts`, e2e |
 | 34 | `block:` and `section:` did not mean what they mean in Obsidian (block id, heading text) | Peingxious's own reading of the operators | Aligned with Obsidian: `line:`, `block:`, `section:` need every term in the same line, block or section; `op:(a b)` groups terms. Blocks and sections are approximated from the note text (paragraphs, list items, headings) | `sameUnit.test.ts`, `searchFilter.test.ts`, e2e |
 | 35 | Filters persist across sessions but nothing showed when one was hiding results | Silent persistence | A marker ("N filters on" with Reset) appears whenever a filter differs from its default | `filterBar.test.ts`, e2e |
-| 36 | Minimum Obsidian version was only assumed to work | Tested on latest only | e2e also runs on Obsidian 1.5.12 (oldest stable at or above 1.5.7) locally and in CI | e2e |
+| 36 | Minimum Obsidian version was only assumed to work | Tested on latest only | e2e also runs on Obsidian 1.8.7 (the current minimum, see fix 40) locally and in CI | e2e |
 | 37 | Traditional Chinese users (`zh-TW`, `zh-HK`) were shown Simplified Chinese | The check was "language starts with zh" | `resolveLocale` separates the two: Traditional falls back to English until someone translates it. Adding a language is documented in `CONTRIBUTING.md`, and tests check every language is complete | `i18n.test.ts` |
 | 38 | The fallback note name "Untitled" was always English | Hard-coded in `safeFileName` | Passed in from the translated `untitled` string | `quickCreate.test.ts` |
 | 39 | Searching note bodies in the default mode also returned near misses (`marker7` matched `marker17`) | One helper used the fuzzy matcher for names and for bodies (introduced with the filter rework; upstream used exact words for bodies) | `createTextMatcher`: fuzzy for names, paths and headings, exact words for bodies; the matcher is also prepared once per query instead of per file | `filterBar.test.ts`, e2e, measured (400 vs 80 hits in 4,000 notes) |
+| 40 | The community scorecard flagged what `bun run lint` passed: `getLanguage()` used below its API level (1.8.7), `:has()` (4) and `!important` (3) in CSS, `builtin-modules`, two moderate `minimatch`/`glob` advisories, an unrecognised licence, unsafe-call/member-access/argument errors on `moment().format(...)`, a property named `global`, and release attestations covering only `main.js` | `eslint-plugin-obsidianmd` switches rules off when `manifest.json` declares an older `minAppVersion`; ESLint does not see CSS, the licence file or advisories | `minAppVersion` raised to 1.8.7 and `getLanguage()` called directly; `:has()` replaced by a `has-file-ctn` class and `:focus-within`; `!important` replaced by specificity; `builtin-modules` replaced by `node:module`; `minimatch`/`glob` overrides; `LICENSE` is now the unmodified GPL text (copyright lines moved to `NOTICE`); `moment` goes through a typed `formatNow` helper (the scorecard cannot resolve `obsidian`'s `moment` types); `global` renamed `vaultWide`; releases attest `main.js`, `manifest.json` and `styles.css` | `tests/scorecard.test.cjs`, `bun audit` in `check` and `hk`, lint, `bun run lint:unresolved-types` (`scripts/lint-without-moment.mjs`, lints with `node_modules/moment` hidden) |
 
 ## Refactors (behaviour unchanged)
 
@@ -123,10 +124,10 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 
 ## Tooling decisions
 
-- `minAppVersion` is **1.5.7** (was 1.2.0): the code uses `AbstractInputSuggest` (1.4.10)
-  and `Vault.getFolderByPath` (1.5.7).
+- `minAppVersion` is **1.8.7** (was 1.5.7, originally 1.2.0): the code uses `AbstractInputSuggest` (1.4.10),
+  `Vault.getFolderByPath` (1.5.7) and `getLanguage()` (1.8.7).
 - The legacy vm-based regression suite in `tests/` (plain CommonJS stubs) is excluded
-  from typed linting; everything else, including the unit and e2e tests, is linted.
+  from typed linting (the scorecard may still report unsafe-call/member-access findings there); everything else, including the unit and e2e tests, is linted.
 - Package manager is bun and tools are pinned with mise (copied from Search Jump).
   Releases go through release-please and need the GitHub App secrets described in
   `CONTRIBUTING.md`.
@@ -144,6 +145,7 @@ Each entry: what was wrong, why, the fix, and what guards it now.
 Tracked from the code review; move a row to the fixes table when done.
 
 - The two modals still have separate preview rendering (they differ in layout and focus handling).
+- `PluginSettingTab.display()` is deprecated since Obsidian 1.13 (five calls in `settingsTab.ts`); replacing it needs `minAppVersion` 1.13.
 
 ## Naming and releasing
 
@@ -157,5 +159,5 @@ Tracked from the code review; move a row to the fixes table when done.
   `release-please-config.json` forces the first release. Remove `release-as`
   after that release. While below 1.0, `bump-minor-pre-major` keeps breaking
   changes in the 0.x line.
-- Differences from upstream 4.3.0 that users should know about: minimum Obsidian 1.5.7, `block:`/`section:`/`line:`
+- Differences from upstream 4.3.0 that users should know about: minimum Obsidian 1.8.7, `block:`/`section:`/`line:`
   semantics, saved-search command ids, the new plugin id.

@@ -1,4 +1,4 @@
-import { getLanguage, requireApiVersion } from "obsidian";
+import { getLanguage } from "obsidian";
 
 export type Locale = "en" | "zh";
 
@@ -20,19 +20,7 @@ export function resolveLocale(lang: string): Locale {
 }
 
 export function getLocale(): Locale {
-  let lang = "";
-  try {
-    if (requireApiVersion("1.8.7") && typeof getLanguage === "function") {
-      lang = getLanguage();
-    }
-  } catch {
-    lang = "";
-  }
-  if (!lang) {
-    lang =
-      window.localStorage.getItem("language") || navigator.language || "en";
-  }
-  return resolveLocale(lang);
+  return resolveLocale(getLanguage());
 }
 
 type ViewTypeKey = "modal" | "sidebar" | "split" | "tab" | "window";

@@ -600,6 +600,7 @@ export class FloatSearchModal extends Modal {
     this.fileEl = contentEl.createDiv({
       cls: "float-search-modal-file-ctn",
     });
+    contentEl.addClass("has-file-ctn");
     this.modalEl.toggleClass("float-search-width", true);
     this.fileEl.onkeydown = (e) => {
       if (e.ctrlKey && e.key === "g") {

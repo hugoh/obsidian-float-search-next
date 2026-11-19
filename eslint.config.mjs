@@ -9,6 +9,7 @@ export default defineConfig(
 		"main.js",
 		"eslint.config.mjs",
 		"esbuild.config.mjs",
+		"scripts",
 		"version-bump.mjs",
 		"package.json",
 		"tsconfig.json",
