@@ -169,11 +169,11 @@ export default class FloatSearchPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    this.initState();
 
     this.registerIcons();
     registerFilterIcons();
     this.app.workspace.onLayoutReady(() => {
-      this.initState();
       // The prototype monkeypatches (patchWorkspace / patchSearchView / …)
       // are deferred to first use via ensurePatched() — they are only
       // needed once the user actually opens a float search, so we no
@@ -286,15 +286,11 @@ export default class FloatSearchPlugin extends Plugin {
 
     listen(activeDocument);
     this.registerEvent(
-      this.app.workspace.on("window-open", () =>
-        this.updateFilePathVisibility(),
-      ),
-    );
-    // Popout windows have their own document.
-    this.registerEvent(
-      this.app.workspace.on("window-open", (_workspaceWindow, win) =>
-        listen(win.document),
-      ),
+      this.app.workspace.on("window-open", (_workspaceWindow, win) => {
+        this.updateFilePathVisibility();
+        // Popout windows have their own document.
+        listen(win.document);
+      }),
     );
   }
 
@@ -477,12 +473,12 @@ export default class FloatSearchPlugin extends Plugin {
         };
       },
       iterateLeaves(native) {
-        type leafIterator = (item: WorkspaceLeaf) => boolean | void;
+        type leafIterator = (item: WorkspaceLeaf) => boolean | undefined;
         // Obsidian accepts (callback, item) and, in older versions, (item, callback).
         const old = native as unknown as (
           this: Workspace,
           ...args: unknown[]
-        ) => boolean | void;
+        ) => boolean | undefined;
         return function (this: Workspace, arg1: unknown, arg2: unknown) {
           // Fast exit if desired leaf found
           if (old.call(this, arg1, arg2)) return true;
@@ -1094,7 +1090,7 @@ export default class FloatSearchPlugin extends Plugin {
       name: strings().cmdSearchCurrentFile,
       queryBuilder: (file?: TFile) => {
         if (!file) return "";
-        return " path:" + `"${file.path}"`;
+        return ` path:"${file.path}"`;
       },
       vaultWide: false,
     });
@@ -1257,7 +1253,7 @@ export default class FloatSearchPlugin extends Plugin {
         (
           menu: Menu,
           file: TAbstractFile,
-          source: string,
+          _source: string,
           leaf?: WorkspaceLeaf,
         ) => {
           const popover = leaf ? EmbeddedView.forLeaf(leaf) : undefined;
