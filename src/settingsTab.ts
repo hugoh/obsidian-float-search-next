@@ -239,13 +239,14 @@ export class FloatSearchSettingTab extends PluginSettingTab {
         items: settings.savedSearches.map((saved) => ({
           name: saved.name,
           render: (setting: Setting) => {
-            const rename = (apply: (value: string) => void) => (value: string) => {
-              const trimmed = value.trim();
-              if (!trimmed) return;
-              apply(trimmed);
-              void this.plugin.saveSettings();
-              this.plugin.syncSavedSearchCommands();
-            };
+            const rename =
+              (apply: (value: string) => void) => (value: string) => {
+                const trimmed = value.trim();
+                if (!trimmed) return;
+                apply(trimmed);
+                void this.plugin.saveSettings();
+                this.plugin.syncSavedSearchCommands();
+              };
             setting
               .addText((text) =>
                 text
@@ -278,7 +279,9 @@ export class FloatSearchSettingTab extends PluginSettingTab {
             text.setPlaceholder(s.namePlaceholder).onChange((v) => (name = v)),
           )
           .addText((text) =>
-            text.setPlaceholder(s.queryPlaceholder).onChange((v) => (query = v)),
+            text
+              .setPlaceholder(s.queryPlaceholder)
+              .onChange((v) => (query = v)),
           )
           .addButton((button) =>
             button
